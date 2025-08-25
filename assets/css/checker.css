@@ -1,0 +1,247 @@
+/**
+ * RayWP Accessibility Checker Styles
+ */
+
+#raywp-checker-container {
+    position: fixed;
+    top: 50%;
+    right: -280px;
+    width: 280px;
+    height: 400px;
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 8px 0 0 8px;
+    box-shadow: -2px 0 10px rgba(0,0,0,0.1);
+    z-index: 999999;
+    transition: right 0.3s ease;
+    transform: translateY(-50%);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px;
+}
+
+#raywp-checker-container.open {
+    right: 0;
+}
+
+.raywp-checker-toggle {
+    position: absolute;
+    left: -40px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 40px;
+    height: 60px;
+    background: #0073aa;
+    color: #fff;
+    border: none;
+    border-radius: 8px 0 0 8px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    box-shadow: -2px 0 5px rgba(0,0,0,0.1);
+}
+
+.raywp-checker-toggle:hover {
+    background: #005a87;
+}
+
+.raywp-checker-header {
+    background: #0073aa;
+    color: #fff;
+    padding: 15px;
+    border-radius: 8px 0 0 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.raywp-checker-title {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0;
+}
+
+.raywp-checker-close {
+    background: none;
+    border: none;
+    color: #fff;
+    font-size: 20px;
+    cursor: pointer;
+    padding: 0;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.raywp-checker-content {
+    padding: 15px;
+    height: calc(100% - 90px);
+    overflow-y: auto;
+}
+
+.raywp-checker-stats {
+    background: #f8f9fa;
+    padding: 10px;
+    border-radius: 4px;
+    margin-bottom: 15px;
+    text-align: center;
+}
+
+.raywp-score {
+    font-size: 24px;
+    font-weight: bold;
+    color: #28a745;
+    margin-bottom: 5px;
+}
+
+.raywp-score.warning {
+    color: #ffc107;
+}
+
+.raywp-score.error {
+    color: #dc3545;
+}
+
+.raywp-issues-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.raywp-issue-item {
+    padding: 8px;
+    margin: 5px 0;
+    border-left: 4px solid #ddd;
+    background: #f9f9f9;
+    border-radius: 0 4px 4px 0;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+.raywp-issue-item:hover {
+    background: #f0f0f0;
+}
+
+.raywp-issue-item.severity-critical {
+    border-left-color: #dc3545;
+}
+
+.raywp-issue-item.severity-high {
+    border-left-color: #fd7e14;
+}
+
+.raywp-issue-item.severity-medium {
+    border-left-color: #ffc107;
+}
+
+.raywp-issue-item.severity-low {
+    border-left-color: #28a745;
+}
+
+.raywp-issue-type {
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 2px;
+}
+
+.raywp-issue-message {
+    font-size: 12px;
+    color: #666;
+    margin-bottom: 4px;
+}
+
+.raywp-issue-element {
+    font-family: monospace;
+    font-size: 11px;
+    background: #e9ecef;
+    padding: 2px 4px;
+    border-radius: 2px;
+    color: #495057;
+}
+
+.raywp-checker-footer {
+    padding: 10px 15px;
+    border-top: 1px solid #eee;
+    display: flex;
+    gap: 10px;
+}
+
+.raywp-btn {
+    flex: 1;
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: #fff;
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.2s ease;
+}
+
+.raywp-btn:hover {
+    background: #f8f9fa;
+}
+
+.raywp-btn.primary {
+    background: #0073aa;
+    color: #fff;
+    border-color: #0073aa;
+}
+
+.raywp-btn.primary:hover {
+    background: #005a87;
+    border-color: #005a87;
+}
+
+/* Issue highlight overlay */
+.raywp-issue-highlight {
+    outline: 3px solid #dc3545 !important;
+    outline-offset: 2px !important;
+    background-color: rgba(220, 53, 69, 0.1) !important;
+    position: relative;
+    z-index: 999998;
+}
+
+.raywp-issue-highlight::before {
+    content: attr(data-raywp-issue);
+    position: absolute;
+    top: -30px;
+    left: 0;
+    background: #dc3545;
+    color: #fff;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: normal;
+    white-space: nowrap;
+    z-index: 999999;
+    pointer-events: none;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    #raywp-checker-container {
+        width: 100%;
+        right: -100%;
+        top: auto;
+        bottom: 0;
+        height: 50vh;
+        border-radius: 8px 8px 0 0;
+        transform: none;
+    }
+    
+    #raywp-checker-container.open {
+        right: 0;
+    }
+    
+    .raywp-checker-toggle {
+        left: 50%;
+        top: -40px;
+        transform: translateX(-50%);
+        width: 60px;
+        height: 40px;
+        border-radius: 8px 8px 0 0;
+    }
+}
