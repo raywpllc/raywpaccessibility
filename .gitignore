@@ -58,3 +58,45 @@ coverage/
 .phpunit.result.cache
 
 issues.txt
+claude.md
+.DS_Store
+
+# Development and debugging
+debug.log
+error_log
+*.map
+
+# macOS specific
+.AppleDouble
+.LSOverride
+._*
+
+# Windows specific
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux specific
+.directory
+
+# IDE specific
+.project
+.settings/
+nbproject/
+.sublime-*
+
+# WordPress plugin development
+.wordpress-org/
+.distignore
+.deployignore
+
+# Temporary files
+*.tmp
+*.temp
+*.cache
+~*
+
+# Security - never commit these
+*.key
+*.pem
+*.crt
+*.csr
