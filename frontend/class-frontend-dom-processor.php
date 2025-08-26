@@ -51,6 +51,10 @@ class Dom_Processor {
             return $html;
         }
         
+        // Start performance monitoring
+        $start_time = microtime(true);
+        $start_memory = memory_get_usage();
+        
         // Debug logging (remove in production)
         if (defined('WP_DEBUG') && WP_DEBUG) {
             error_log('RayWP Accessibility: Processing page output');
@@ -68,6 +72,23 @@ class Dom_Processor {
         // if (!empty($this->settings['enable_checker'])) {
         //     $html = $this->inject_accessibility_checker($html);
         // }
+        
+        // Log performance metrics
+        $end_time = microtime(true);
+        $end_memory = memory_get_usage();
+        $processing_time = ($end_time - $start_time) * 1000; // Convert to milliseconds
+        $memory_used = ($end_memory - $start_memory) / 1024 / 1024; // Convert to MB
+        
+        // Store performance data for monitoring
+        $this->log_performance_metrics($processing_time, $memory_used);
+        
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log(sprintf(
+                'RayWP Accessibility: Page processed in %.2f ms, using %.2f MB',
+                $processing_time,
+                $memory_used
+            ));
+        }
         
         return $html;
     }
@@ -804,24 +825,15 @@ class Dom_Processor {
             }
         }
         
-        // Strategy 7: Create a generic controlled element if none found
-        $controlled_element = $button->ownerDocument->createElement('div');
-        $controlled_element->setAttribute('class', 'raywp-controlled-content mega-menu-controlled');
-        $controlled_element->setAttribute('style', 'display: none;');
-        $controlled_element->setAttribute('data-raywp-created', 'true');
-        
-        // Insert after the button
-        if ($button->nextSibling) {
-            $button->parentNode->insertBefore($controlled_element, $button->nextSibling);
-        } else {
-            $button->parentNode->appendChild($controlled_element);
-        }
-        
+        // Strategy 7: If no controlled element found, log and return null
+        // Don't inject new elements as this can break page layouts
         if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('RayWP Accessibility: Created controlled element for mega menu button');
+            error_log('RayWP Accessibility: Could not find controlled element for button with classes: ' . $button_classes);
         }
         
-        return $controlled_element;
+        // Instead of creating an element, just return null
+        // The calling function should handle this gracefully
+        return null;
     }
     
     /**
@@ -1247,6 +1259,53 @@ class Dom_Processor {
                     error_log('RayWP Accessibility: Fixed multiple labels for input ' . $input_id);
                 }
             }
+        }
+    }
+    
+    /**
+     * Log performance metrics for monitoring
+     */
+    private function log_performance_metrics($processing_time, $memory_used) {
+        // Get current performance data
+        $performance_data = get_transient('raywp_accessibility_performance_metrics');
+        if (!is_array($performance_data)) {
+            $performance_data = [
+                'samples' => [],
+                'total_time' => 0,
+                'total_memory' => 0,
+                'count' => 0
+            ];
+        }
+        
+        // Add current sample (keep last 100 samples)
+        $performance_data['samples'][] = [
+            'time' => $processing_time,
+            'memory' => $memory_used,
+            'timestamp' => current_time('timestamp')
+        ];
+        
+        if (count($performance_data['samples']) > 100) {
+            array_shift($performance_data['samples']);
+        }
+        
+        // Update totals
+        $performance_data['total_time'] += $processing_time;
+        $performance_data['total_memory'] += $memory_used;
+        $performance_data['count']++;
+        
+        // Calculate averages
+        $performance_data['avg_time'] = $performance_data['total_time'] / $performance_data['count'];
+        $performance_data['avg_memory'] = $performance_data['total_memory'] / $performance_data['count'];
+        
+        // Store for 24 hours
+        set_transient('raywp_accessibility_performance_metrics', $performance_data, DAY_IN_SECONDS);
+        
+        // Log warning if performance is degraded
+        if ($processing_time > 100) { // More than 100ms
+            error_log(sprintf(
+                'RayWP Accessibility Warning: Slow page processing detected - %.2f ms',
+                $processing_time
+            ));
         }
     }
 }

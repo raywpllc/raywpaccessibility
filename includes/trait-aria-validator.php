@@ -200,34 +200,59 @@ trait Aria_Validator {
      * Enhanced CSS to XPath converter
      */
     protected function enhanced_css_to_xpath($css) {
-        // Handle complex selectors
-        $patterns = [
-            // ID selectors
-            '/#([\w-]+)/' => '[@id="$1"]',
-            // Class selectors
-            '/\.([\w-]+)/' => '[contains(concat(" ", normalize-space(@class), " "), " $1 ")]',
-            // Attribute selectors
-            '/\[([^\]]+)\]/' => '[$1]',
-            // Descendant combinator
-            '/\s+/' => '//',
-            // Child combinator
-            '/\s*>\s*/' => '/',
-            // Adjacent sibling
-            '/\s*\+\s*/' => '/following-sibling::*[1]/self::',
-            // General sibling
-            '/\s*~\s*/' => '/following-sibling::',
-            // :first-child
-            '/:first-child/' => '[1]',
-            // :last-child
-            '/:last-child/' => '[last()]',
-            // :nth-child(n)
-            '/:nth-child\((\d+)\)/' => '[$1]'
-        ];
+        // Start with the CSS selector
+        $xpath = $css;
         
-        $xpath = '//' . $css;
+        // Handle attribute selectors with quotes
+        // [attr="value"] -> [@attr="value"]
+        $xpath = preg_replace('/\[([a-zA-Z0-9_-]+)="([^"]+)"\]/', '[@$1="$2"]', $xpath);
+        $xpath = preg_replace('/\[([a-zA-Z0-9_-]+)=\'([^\']+)\'\]/', '[@$1=\'$2\']', $xpath);
         
-        foreach ($patterns as $pattern => $replacement) {
-            $xpath = preg_replace($pattern, $replacement, $xpath);
+        // Handle attribute selectors without quotes
+        // [attr=value] -> [@attr="value"]
+        $xpath = preg_replace('/\[([a-zA-Z0-9_-]+)=([^\]]+)\]/', '[@$1="$2"]', $xpath);
+        
+        // Handle attribute existence selectors
+        // [attr] -> [@attr]
+        $xpath = preg_replace('/\[([a-zA-Z0-9_-]+)\]/', '[@$1]', $xpath);
+        
+        // Handle multiple classes (must be done before single class handling)
+        // .classA.classB -> [contains(@class,"classA") and contains(@class,"classB")]
+        while (preg_match('/\.([a-zA-Z0-9_-]+)\.([a-zA-Z0-9_-]+)/', $xpath, $matches)) {
+            $xpath = preg_replace(
+                '/\.([a-zA-Z0-9_-]+)\.([a-zA-Z0-9_-]+)/',
+                '[contains(concat(" ", normalize-space(@class), " "), " $1 ") and contains(concat(" ", normalize-space(@class), " "), " $2 ")]',
+                $xpath,
+                1
+            );
+        }
+        
+        // Handle single class selectors
+        // .class -> [contains(@class,"class")]
+        $xpath = preg_replace('/\.([a-zA-Z0-9_-]+)/', '[contains(concat(" ", normalize-space(@class), " "), " $1 ")]', $xpath);
+        
+        // Handle ID selectors
+        // #id -> [@id="id"]
+        $xpath = preg_replace('/#([a-zA-Z0-9_-]+)/', '[@id="$1"]', $xpath);
+        
+        // Handle pseudo-selectors
+        $xpath = preg_replace('/:first-child/', '[1]', $xpath);
+        $xpath = preg_replace('/:last-child/', '[last()]', $xpath);
+        $xpath = preg_replace('/:nth-child\((\d+)\)/', '[$1]', $xpath);
+        
+        // Handle combinators (order matters!)
+        // Child combinator
+        $xpath = preg_replace('/\s*>\s*/', '/', $xpath);
+        // Adjacent sibling
+        $xpath = preg_replace('/\s*\+\s*/', '/following-sibling::*[1]/self::', $xpath);
+        // General sibling
+        $xpath = preg_replace('/\s*~\s*/', '/following-sibling::', $xpath);
+        // Descendant combinator (space)
+        $xpath = preg_replace('/\s+/', '//', $xpath);
+        
+        // If xpath doesn't start with /, add // for anywhere in document
+        if (strpos($xpath, '/') !== 0) {
+            $xpath = '//' . $xpath;
         }
         
         return $xpath;

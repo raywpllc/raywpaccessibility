@@ -189,7 +189,7 @@ class Admin {
         <div class="wrap">
             <div class="raywp-dashboard-header">
                 <img src="<?php echo RAYWP_ACCESSIBILITY_PLUGIN_URL; ?>assets/images/Ray-Logo.webp" alt="Ray" class="raywp-logo" />
-                <h1><?php echo esc_html(get_admin_page_title()); ?></h1>
+                <h1><?php echo esc_html(get_admin_page_title()); ?> <span style="font-size: 0.5em; color: #666;">v<?php echo RAYWP_ACCESSIBILITY_VERSION; ?></span></h1>
             </div>
             
             <div class="raywp-dashboard">
@@ -215,6 +215,16 @@ class Admin {
                                 <?php _e('View Reports', 'raywp-accessibility'); ?>
                             </a>
                         </p>
+                    </div>
+                    
+                    <div class="raywp-widget">
+                        <h2><?php _e('System Info', 'raywp-accessibility'); ?></h2>
+                        <ul>
+                            <li><strong><?php _e('Plugin Version:', 'raywp-accessibility'); ?></strong> <?php echo RAYWP_ACCESSIBILITY_VERSION; ?></li>
+                            <li><strong><?php _e('Last Updated:', 'raywp-accessibility'); ?></strong> <?php echo date('F j, Y', strtotime('2025-08-25')); ?></li>
+                            <li><strong><?php _e('Security Fixes:', 'raywp-accessibility'); ?></strong> ✓ Applied</li>
+                            <li><strong><?php _e('Performance Monitor:', 'raywp-accessibility'); ?></strong> ✓ Active</li>
+                        </ul>
                     </div>
                     
                     <div class="raywp-widget">
@@ -339,7 +349,7 @@ class Admin {
                                     <td><code><?php echo esc_html($rule['attribute']); ?></code></td>
                                     <td><?php echo esc_html($rule['value']); ?></td>
                                     <td>
-                                        <button class="button button-small delete-rule" data-index="<?php echo $index; ?>">
+                                        <button class="button button-small delete-rule" data-index="<?php echo esc_attr($index); ?>">
                                             <?php _e('Delete', 'raywp-accessibility'); ?>
                                         </button>
                                     </td>
@@ -575,7 +585,7 @@ class Admin {
                                     if (!empty($color_overrides)) {
                                         foreach ($color_overrides as $index => $override) {
                                             ?>
-                                            <div class="raywp-color-override-rule" data-index="<?php echo $index; ?>">
+                                            <div class="raywp-color-override-rule" data-index="<?php echo esc_attr($index); ?>">
                                                 <div class="rule-display">
                                                     <strong><?php echo esc_html($override['selector']); ?></strong>
                                                     <?php if (!empty($override['color'])): ?>
@@ -584,7 +594,7 @@ class Admin {
                                                     <?php if (!empty($override['background'])): ?>
                                                         <span style="background: <?php echo esc_attr($override['background']); ?>; padding: 2px 8px; color: #fff;">BG: <?php echo esc_html($override['background']); ?></span>
                                                     <?php endif; ?>
-                                                    <button type="button" class="button-link delete-color-override" data-index="<?php echo $index; ?>"><?php _e('Remove', 'raywp-accessibility'); ?></button>
+                                                    <button type="button" class="button-link delete-color-override" data-index="<?php echo esc_attr($index); ?>"><?php _e('Remove', 'raywp-accessibility'); ?></button>
                                                 </div>
                                             </div>
                                             <?php

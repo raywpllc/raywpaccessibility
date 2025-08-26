@@ -56,3 +56,5 @@ build/
 # Testing
 coverage/
 .phpunit.result.cache
+
+issues.txt

@@ -630,9 +630,20 @@ class Plugin {
             return $color;
         }
         
-        // Check for rgb/rgba
-        if (preg_match('/^rgba?\([^)]+\)$/i', $color)) {
-            return $color;
+        // Check for rgb/rgba with proper validation
+        if (preg_match('/^rgb\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*\)$/i', $color, $matches)) {
+            // Validate each RGB value is between 0-255
+            if ($matches[1] <= 255 && $matches[2] <= 255 && $matches[3] <= 255) {
+                return $color;
+            }
+        }
+        
+        // Check for rgba with proper validation
+        if (preg_match('/^rgba\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*([0-9]*\.?[0-9]+)\s*\)$/i', $color, $matches)) {
+            // Validate RGB values are between 0-255 and alpha is between 0-1
+            if ($matches[1] <= 255 && $matches[2] <= 255 && $matches[3] <= 255 && $matches[4] <= 1) {
+                return $color;
+            }
         }
         
         // Check for named colors (basic list)
