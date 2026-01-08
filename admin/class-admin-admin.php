@@ -1124,6 +1124,9 @@ class Admin {
         $has_post_fix_scan = $axe_results && isset($axe_results['scan_type']) && $axe_results['scan_type'] === 'axe-core';
         $detailed_manual_issues = ($reports && $has_post_fix_scan) ? $reports->get_detailed_manual_issues() : [];
         $last_scan_date = $reports ? $reports->get_last_scan_date() : null;
+
+        // Get stored dual-scan results for display persistence
+        $dual_scan_results = get_option('raywp_accessibility_scan_with_fixes_results', null);
         $wcag_breakdown = $reports ? $reports->get_wcag_compliance_breakdown() : [];
         $scan_sessions = $reports ? $reports->get_scan_sessions() : [];
         
@@ -1150,7 +1153,7 @@ class Admin {
                     <div style="margin-bottom: 15px;">
                         <button id="run-full-scan" class="button button-primary" style="margin-right: 10px;"><?php esc_html_e('Run Full Scan', 'raywp-accessibility'); ?></button>
                         <button id="enable-all-fixes" class="button" style="margin-right: 10px;"><?php esc_html_e('Enable All Auto-Fixes', 'raywp-accessibility'); ?></button>
-                        <button id="check-fixed-score" class="button" style="display: none;"><?php esc_html_e('Check Score With Fixes', 'raywp-accessibility'); ?></button>
+                        <button id="check-fixed-score" class="button"><?php esc_html_e('Check Score With Fixes', 'raywp-accessibility'); ?></button>
                     </div>
                     <?php 
                     // Show current fix settings
@@ -1414,44 +1417,172 @@ class Admin {
                 <div class="raywp-report-section" id="scan-results">
                     <h2><?php esc_html_e('Scan Results', 'raywp-accessibility'); ?></h2>
                     <?php if ($last_scan_date): ?>
-                        <p><strong><?php esc_html_e('Last Scan:', 'raywp-accessibility'); ?></strong> 
+                        <p><strong><?php esc_html_e('Last Scan:', 'raywp-accessibility'); ?></strong>
                            <?php echo esc_html(wp_date(get_option('date_format') . ' ' . get_option('time_format'), strtotime($last_scan_date))); ?>
                         </p>
                     <?php endif; ?>
                     <div class="raywp-scan-results">
-                        <?php if (empty($issue_summary)): ?>
+                        <?php if (empty($issue_summary) && empty($dual_scan_results)): ?>
                             <p><?php esc_html_e('No scans performed yet. Click "Run Full Scan" to analyze your site.', 'raywp-accessibility'); ?></p>
                         <?php else: ?>
-                            <!-- Show only Auto-Fixed Issues -->
-                            <div style="margin-top: 20px;">
-                                <div>
-                                    <h3 style="color: #28a745; margin-bottom: 15px;">✅ Auto-Fixed Issues</h3>
-                                    <div style="background: #e8f5e8; padding: 20px; border-radius: 8px; border: 1px solid #28a745;">
-                                        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px;">
-                                            <?php
-                                            $fixed_count = 0;
-                                            foreach ($issue_summary as $issue) {
-                                                if ($this->is_auto_fixable($issue->issue_type)) {
-                                                    echo '<div style="padding: 10px; background: rgba(255,255,255,0.5); border-radius: 4px;">';
-                                                    echo '<div style="display: flex; justify-content: space-between; align-items: center;">';
-                                                    echo '<span style="color: #155724;">';
-                                                    echo '<strong>' . esc_html(ucfirst($issue->issue_severity)) . ':</strong> ';
-                                                    echo esc_html($this->get_issue_description($issue->issue_type));
-                                                    echo '</span>';
-                                                    echo '<span style="color: #155724; font-weight: bold;">(' . intval($issue->count) . ' fixed) ✓</span>';
-                                                    echo '</div>';
-                                                    echo '</div>';
-                                                    $fixed_count += $issue->count;
+                            <?php
+                            // Show dual-scan results if available (from Check Score With Fixes)
+                            if (!empty($dual_scan_results) && isset($dual_scan_results['issue_breakdown'])):
+                                $issue_breakdown = $dual_scan_results['issue_breakdown'];
+                            ?>
+                                <!-- Dual Scan Summary -->
+                                <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #e9ecef;">
+                                    <div style="display: flex; gap: 30px; flex-wrap: wrap;">
+                                        <div><strong>Live Score:</strong> <?php echo intval($dual_scan_results['fixed_score']); ?>%</div>
+                                        <div><strong>Pages Scanned:</strong> <?php echo intval($dual_scan_results['pages_scanned']); ?></div>
+                                        <div><strong>Remaining Issues:</strong> <?php echo intval($dual_scan_results['total_issues']); ?></div>
+                                        <?php if (!empty($dual_scan_results['timestamp'])): ?>
+                                            <div><strong>Scanned:</strong> <?php echo esc_html($dual_scan_results['timestamp']); ?></div>
+                                        <?php endif; ?>
+                                    </div>
+                                </div>
+
+                                <?php if (!empty($issue_breakdown['fixed'])): ?>
+                                    <!-- Auto-Fixed Issues from Dual Scan -->
+                                    <div style="margin: 20px 0; padding: 15px; background: #d4edda; border-left: 4px solid #28a745; border-radius: 4px;">
+                                        <h4 style="margin: 0 0 10px 0; cursor: pointer;" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'; this.querySelector('.toggle-indicator').textContent = this.nextElementSibling.style.display === 'none' ? '▼' : '▲';">
+                                            ✓ Auto-Fixed Issues (<?php echo count($issue_breakdown['fixed']); ?> total)
+                                            <span class="toggle-indicator">▼</span>
+                                        </h4>
+                                        <p style="margin: 0 0 10px 0; color: #155724; font-size: 13px;">These issues were automatically fixed by the plugin.</p>
+                                        <div style="display: none;">
+                                            <table class="wp-list-table widefat fixed striped" style="background: #fff;">
+                                                <thead><tr><th>Issue Type</th><th>Count</th><th>Sample Page</th></tr></thead>
+                                                <tbody>
+                                                    <?php
+                                                    $fixed_by_type = [];
+                                                    foreach ($issue_breakdown['fixed'] as $issue) {
+                                                        $type = $issue['type'] ?? 'unknown';
+                                                        if (!isset($fixed_by_type[$type])) {
+                                                            $fixed_by_type[$type] = ['count' => 0, 'sample' => $issue];
+                                                        }
+                                                        $fixed_by_type[$type]['count']++;
+                                                    }
+                                                    foreach ($fixed_by_type as $type => $data):
+                                                    ?>
+                                                        <tr>
+                                                            <td><?php echo esc_html($this->get_issue_description($type)); ?></td>
+                                                            <td><?php echo intval($data['count']); ?></td>
+                                                            <td>
+                                                                <?php if (!empty($data['sample']['page_title'])): ?>
+                                                                    <a href="<?php echo esc_url($data['sample']['page_url'] ?? '#'); ?>" target="_blank"><?php echo esc_html($data['sample']['page_title']); ?></a>
+                                                                <?php else: ?>
+                                                                    -
+                                                                <?php endif; ?>
+                                                            </td>
+                                                        </tr>
+                                                    <?php endforeach; ?>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                <?php endif; ?>
+
+                                <?php if (!empty($issue_breakdown['remaining'])): ?>
+                                    <!-- Remaining Issues from Dual Scan -->
+                                    <div style="margin: 20px 0; padding: 15px; background: #fff3cd; border-left: 4px solid #ffc107; border-radius: 4px;">
+                                        <h4 style="margin: 0 0 10px 0; cursor: pointer;" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'; this.querySelector('.toggle-indicator').textContent = this.nextElementSibling.style.display === 'none' ? '▼' : '▲';">
+                                            ⚠ Remaining Issues (<?php echo count($issue_breakdown['remaining']); ?> total)
+                                            <span class="toggle-indicator">▼</span>
+                                        </h4>
+                                        <p style="margin: 0 0 10px 0; color: #856404; font-size: 13px;">These issues require manual attention.</p>
+                                        <div style="display: none;">
+                                            <table class="wp-list-table widefat fixed striped" style="background: #fff;">
+                                                <thead><tr><th>Issue Type</th><th>Count</th><th>Sample Page</th></tr></thead>
+                                                <tbody>
+                                                    <?php
+                                                    $remaining_by_type = [];
+                                                    foreach ($issue_breakdown['remaining'] as $issue) {
+                                                        $type = $issue['type'] ?? 'unknown';
+                                                        if (!isset($remaining_by_type[$type])) {
+                                                            $remaining_by_type[$type] = ['count' => 0, 'sample' => $issue];
+                                                        }
+                                                        $remaining_by_type[$type]['count']++;
+                                                    }
+                                                    foreach ($remaining_by_type as $type => $data):
+                                                    ?>
+                                                        <tr>
+                                                            <td><?php echo esc_html($this->get_issue_description($type)); ?></td>
+                                                            <td><?php echo intval($data['count']); ?></td>
+                                                            <td>
+                                                                <?php if (!empty($data['sample']['page_title'])): ?>
+                                                                    <a href="<?php echo esc_url($data['sample']['page_url'] ?? '#'); ?>" target="_blank"><?php echo esc_html($data['sample']['page_title']); ?></a>
+                                                                <?php else: ?>
+                                                                    -
+                                                                <?php endif; ?>
+                                                            </td>
+                                                        </tr>
+                                                    <?php endforeach; ?>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                <?php endif; ?>
+
+                                <?php if (!empty($dual_scan_results['details'])): ?>
+                                    <!-- Page-by-Page Breakdown -->
+                                    <div style="margin: 20px 0;">
+                                        <h4 style="margin: 0 0 10px 0; cursor: pointer;" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'; this.querySelector('.toggle-indicator').textContent = this.nextElementSibling.style.display === 'none' ? '▼' : '▲';">
+                                            📄 Page-by-Page Breakdown
+                                            <span class="toggle-indicator">▼</span>
+                                        </h4>
+                                        <div style="display: none;">
+                                            <table class="wp-list-table widefat fixed striped">
+                                                <thead><tr><th>Page</th><th>Original Issues</th><th>Remaining</th><th>Fixed</th></tr></thead>
+                                                <tbody>
+                                                    <?php foreach ($dual_scan_results['details'] as $page):
+                                                        $fixed = $page['original_issues'] - $page['remaining_issues'];
+                                                    ?>
+                                                        <tr>
+                                                            <td><a href="<?php echo esc_url($page['url']); ?>" target="_blank"><?php echo esc_html($page['title'] ?? $page['url']); ?></a></td>
+                                                            <td><?php echo intval($page['original_issues']); ?></td>
+                                                            <td><?php echo intval($page['remaining_issues']); ?></td>
+                                                            <td style="<?php echo $fixed > 0 ? 'color: #28a745;' : ''; ?>"><?php echo $fixed > 0 ? '+' . $fixed . ' fixed' : '0'; ?></td>
+                                                        </tr>
+                                                    <?php endforeach; ?>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                <?php endif; ?>
+
+                            <?php else: ?>
+                                <!-- Show basic Auto-Fixed Issues from regular scan -->
+                                <div style="margin-top: 20px;">
+                                    <div>
+                                        <h3 style="color: #28a745; margin-bottom: 15px;">✅ Auto-Fixed Issues</h3>
+                                        <div style="background: #e8f5e8; padding: 20px; border-radius: 8px; border: 1px solid #28a745;">
+                                            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px;">
+                                                <?php
+                                                $fixed_count = 0;
+                                                foreach ($issue_summary as $issue) {
+                                                    if ($this->is_auto_fixable($issue->issue_type)) {
+                                                        echo '<div style="padding: 10px; background: rgba(255,255,255,0.5); border-radius: 4px;">';
+                                                        echo '<div style="display: flex; justify-content: space-between; align-items: center;">';
+                                                        echo '<span style="color: #155724;">';
+                                                        echo '<strong>' . esc_html(ucfirst($issue->issue_severity)) . ':</strong> ';
+                                                        echo esc_html($this->get_issue_description($issue->issue_type));
+                                                        echo '</span>';
+                                                        echo '<span style="color: #155724; font-weight: bold;">(' . intval($issue->count) . ' fixed) ✓</span>';
+                                                        echo '</div>';
+                                                        echo '</div>';
+                                                        $fixed_count += $issue->count;
+                                                    }
                                                 }
-                                            }
-                                            if ($fixed_count == 0) {
-                                                echo '<p style="color: #155724; margin: 0;">No auto-fixable issues found in last scan.</p>';
-                                            }
-                                            ?>
+                                                if ($fixed_count == 0) {
+                                                    echo '<p style="color: #155724; margin: 0;">No auto-fixable issues found in last scan.</p>';
+                                                }
+                                                ?>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
-                            </div>
+                            <?php endif; ?>
                         <?php endif; ?>
                     </div>
                 </div>
