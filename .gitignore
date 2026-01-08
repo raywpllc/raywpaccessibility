@@ -89,6 +89,21 @@ nbproject/
 .distignore
 .deployignore
 
+# Test files and directories
+test-form.html
+test-results/
+.playwright-mcp/
+
+# Task tracking
+tasks/
+
+# Symlinks (don't track symlinks to other locations)
+raywp-accessibility
+
+# Build and release scripts (keep local only)
+BUILD-INSTRUCTIONS.md
+create-release-zip.sh
+
 # Temporary files
 *.tmp
 *.temp
