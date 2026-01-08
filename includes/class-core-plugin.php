@@ -395,37 +395,13 @@ class Plugin {
             $score = 0;
             
             if ($reports) {
-                // Get the compliance assessment which includes the proper score
-                $compliance_assessment = $reports->calculate_compliance_assessment();
-                
-                if ($compliance_assessment) {
-                    // Check if any fixes are enabled
-                    $current_settings = get_option('raywp_accessibility_settings', []);
-                    $has_fixes_enabled = !empty($current_settings['fix_forms']) || 
-                                       !empty($current_settings['add_main_landmark']) || 
-                                       !empty($current_settings['fix_heading_hierarchy']) ||
-                                       !empty($current_settings['fix_empty_alt']) ||
-                                       !empty($current_settings['fix_lang_attr']) ||
-                                       !empty($current_settings['fix_form_labels']) ||
-                                       !empty($current_settings['add_skip_links']) ||
-                                       !empty($current_settings['fix_aria_controls']) ||
-                                       !empty($current_settings['enhance_focus']) ||
-                                       !empty($current_settings['fix_contrast']) ||
-                                       !empty($current_settings['enhance_color_contrast']) ||
-                                       !empty($current_settings['fix_placeholder_contrast']) ||
-                                       !empty($current_settings['fix_video_accessibility']) ||
-                                       !empty($current_settings['fix_keyboard_accessibility']) ||
-                                       !empty($current_settings['fix_duplicate_ids']) ||
-                                       !empty($current_settings['fix_page_language']);
-                    
-                    // Use the appropriate score based on whether fixes are enabled
-                    if ($has_fixes_enabled && isset($compliance_assessment['fixed_score'])) {
-                        $score = $compliance_assessment['fixed_score'];
-                    } else {
-                        $score = $compliance_assessment['original_score'];
-                    }
+                // Use calculate_accessibility_score() directly to get the numeric score
+                $calculated_score = $reports->calculate_accessibility_score();
+
+                if ($calculated_score !== null) {
+                    $score = $calculated_score;
                 } else {
-                    // Fallback to simple calculation if assessment fails
+                    // Fallback to simple calculation if score calculation fails
                     $score = max(0, min(100, round(100 - (($total_issues / max(1, count($pages))) * 5))));
                 }
             } else {
@@ -438,7 +414,7 @@ class Plugin {
             error_log('RayWP Accessibility: Preparing response...');
             $response_data = [
                 'message' => 'Scan completed successfully',
-                'score' => $score,
+                'accessibility_score' => $score,
                 'total_issues' => $total_issues,
                 'pages_scanned' => count($pages),
                 'results' => $results,
