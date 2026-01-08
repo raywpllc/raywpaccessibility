@@ -16,6 +16,77 @@ class Reports {
      */
     public function __construct() {
         // Initialize reports functionality
+        $this->ensure_database_table();
+    }
+
+    /**
+     * Ensure database table exists with all required columns
+     */
+    public function ensure_database_table() {
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'raywp_accessibility_scan_results';
+        $charset_collate = $wpdb->get_charset_collate();
+
+        // Check if table exists
+        $table_exists = $wpdb->get_var("SHOW TABLES LIKE '$table_name'");
+
+        if (!$table_exists) {
+            // Create table with all columns
+            $sql = "CREATE TABLE $table_name (
+                id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+                page_url varchar(500) NOT NULL DEFAULT '',
+                issue_type varchar(100) NOT NULL DEFAULT '',
+                issue_severity varchar(50) NOT NULL DEFAULT 'medium',
+                issue_description text,
+                element_selector text,
+                wcag_criteria varchar(50) DEFAULT '',
+                wcag_reference varchar(50) DEFAULT '',
+                wcag_level varchar(10) DEFAULT '',
+                auto_fixable tinyint(1) DEFAULT 0,
+                page_type varchar(50) DEFAULT '',
+                scan_session_id varchar(100) DEFAULT '',
+                session_id varchar(100) DEFAULT '',
+                wcag_criterion varchar(50) DEFAULT '',
+                compliance_impact varchar(50) DEFAULT '',
+                confidence_level varchar(20) DEFAULT '',
+                fixed tinyint(1) DEFAULT 0,
+                scan_date datetime DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                KEY page_url (page_url(191)),
+                KEY issue_type (issue_type),
+                KEY issue_severity (issue_severity),
+                KEY scan_date (scan_date),
+                KEY session_id (session_id(50))
+            ) $charset_collate;";
+
+            require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+            dbDelta($sql);
+        } else {
+            // Table exists - add any missing columns
+            $columns = $wpdb->get_col("DESCRIBE $table_name", 0);
+
+            $new_columns = [
+                'wcag_criteria' => "ALTER TABLE $table_name ADD COLUMN wcag_criteria varchar(50) DEFAULT ''",
+                'wcag_reference' => "ALTER TABLE $table_name ADD COLUMN wcag_reference varchar(50) DEFAULT ''",
+                'wcag_level' => "ALTER TABLE $table_name ADD COLUMN wcag_level varchar(10) DEFAULT ''",
+                'auto_fixable' => "ALTER TABLE $table_name ADD COLUMN auto_fixable tinyint(1) DEFAULT 0",
+                'page_type' => "ALTER TABLE $table_name ADD COLUMN page_type varchar(50) DEFAULT ''",
+                'scan_session_id' => "ALTER TABLE $table_name ADD COLUMN scan_session_id varchar(100) DEFAULT ''",
+                'session_id' => "ALTER TABLE $table_name ADD COLUMN session_id varchar(100) DEFAULT ''",
+                'wcag_criterion' => "ALTER TABLE $table_name ADD COLUMN wcag_criterion varchar(50) DEFAULT ''",
+                'compliance_impact' => "ALTER TABLE $table_name ADD COLUMN compliance_impact varchar(50) DEFAULT ''",
+                'confidence_level' => "ALTER TABLE $table_name ADD COLUMN confidence_level varchar(20) DEFAULT ''",
+            ];
+
+            foreach ($new_columns as $column => $sql) {
+                if (!in_array($column, $columns)) {
+                    $wpdb->query($sql);
+                }
+            }
+        }
+
+        // Update version option
+        update_option('raywp_accessibility_db_version', '1.0.4');
     }
     
     /**
