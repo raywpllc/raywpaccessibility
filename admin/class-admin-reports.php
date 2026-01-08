@@ -55,6 +55,59 @@ class Reports {
     }
     
     /**
+     * Get last scan date
+     */
+    public function get_last_scan_date() {
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'raywp_accessibility_scan_results';
+
+        // Check if table exists first
+        $table_exists = $wpdb->get_var("SHOW TABLES LIKE '$table_name'");
+        if (!$table_exists) {
+            return null;
+        }
+
+        return $wpdb->get_var("SELECT MAX(scan_date) FROM $table_name");
+    }
+
+    /**
+     * Calculate compliance assessment
+     */
+    public function calculate_compliance_assessment() {
+        $score = $this->calculate_accessibility_score();
+
+        if ($score === null) {
+            return null;
+        }
+
+        if ($score >= 90) {
+            return [
+                'level' => 'excellent',
+                'label' => 'Excellent',
+                'description' => 'Your site meets high accessibility standards.'
+            ];
+        } elseif ($score >= 70) {
+            return [
+                'level' => 'good',
+                'label' => 'Good',
+                'description' => 'Your site has good accessibility with some areas for improvement.'
+            ];
+        } elseif ($score >= 50) {
+            return [
+                'level' => 'needs-work',
+                'label' => 'Needs Work',
+                'description' => 'Your site has accessibility issues that should be addressed.'
+            ];
+        } else {
+            return [
+                'level' => 'poor',
+                'label' => 'Poor',
+                'description' => 'Your site has significant accessibility issues requiring attention.'
+            ];
+        }
+    }
+
+    /**
      * Calculate accessibility score
      */
     public function calculate_accessibility_score() {
