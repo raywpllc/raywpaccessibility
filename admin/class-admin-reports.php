@@ -386,13 +386,24 @@ class Reports {
         global $wpdb;
         $table_name = $wpdb->prefix . 'raywp_accessibility_scan_results';
 
+        // Ensure database table has all required columns
+        $this->ensure_database_table();
+
+        // Generate session ID if not provided
+        if (empty($session_id)) {
+            $session_id = 'scan_' . time() . '_' . wp_rand(1000, 9999);
+        }
+
         // Clear previous results if requested
-        if ($clear_previous && $session_id) {
+        if ($clear_previous) {
             $wpdb->delete($table_name, ['session_id' => $session_id]);
         }
 
         if (empty($scan_data) || !is_array($scan_data)) {
-            return false;
+            return [
+                'session_id' => $session_id,
+                'inserted_count' => 0
+            ];
         }
 
         $inserted = 0;
@@ -406,7 +417,7 @@ class Reports {
                     'issue_description' => sanitize_text_field($issue['issue_description'] ?? ''),
                     'element_selector' => sanitize_text_field($issue['element_selector'] ?? ''),
                     'wcag_criteria' => sanitize_text_field($issue['wcag_criteria'] ?? ''),
-                    'session_id' => sanitize_text_field($session_id ?? ''),
+                    'session_id' => sanitize_text_field($session_id),
                     'fixed' => 0,
                     'scan_date' => current_time('mysql')
                 ],
@@ -418,7 +429,10 @@ class Reports {
             }
         }
 
-        return $inserted;
+        return [
+            'session_id' => $session_id,
+            'inserted_count' => $inserted
+        ];
     }
 
     /**
