@@ -263,6 +263,11 @@
                     // Group violations by type
                     pageResult.violations.forEach(violation => {
                         const id = violation.id;
+
+                        // For 'region' rule, count once per page (not per element)
+                        // This rule fires for every element outside a landmark which is too noisy
+                        const isPerPageRule = (id === 'region');
+
                         if (!results.violationsByType[id]) {
                             results.violationsByType[id] = {
                                 id: id,
@@ -272,16 +277,40 @@
                                 impact: violation.impact,
                                 tags: violation.tags,
                                 count: 0,
+                                pagesAffected: [],
                                 nodes: []
                             };
                         }
-                        results.violationsByType[id].count += violation.nodes.length;
-                        // Store first few nodes as examples
-                        if (results.violationsByType[id].nodes.length < 3) {
-                            results.violationsByType[id].nodes.push({
-                                page: page.title || page.url,
-                                pageUrl: page.url,
-                                target: violation.nodes[0]?.target || []
+
+                        // Track which pages are affected (for deduplication)
+                        if (!results.violationsByType[id].pagesAffected.includes(page.url)) {
+                            results.violationsByType[id].pagesAffected.push(page.url);
+                        }
+
+                        // For per-page rules, count once per page
+                        // For others, count each node
+                        if (isPerPageRule) {
+                            // Only increment if this is first occurrence on this page
+                            if (results.violationsByType[id].pagesAffected.length ===
+                                results.violationsByType[id].count + 1) {
+                                results.violationsByType[id].count++;
+                            }
+                        } else {
+                            results.violationsByType[id].count += violation.nodes.length;
+                        }
+
+                        // Store first few nodes as examples with HTML snippets
+                        if (results.violationsByType[id].nodes.length < 5) {
+                            violation.nodes.slice(0, 3).forEach(node => {
+                                if (results.violationsByType[id].nodes.length < 5) {
+                                    results.violationsByType[id].nodes.push({
+                                        page: page.title || page.url,
+                                        pageUrl: page.url,
+                                        target: node.target || [],
+                                        html: node.html || '',
+                                        failureSummary: node.failureSummary || ''
+                                    });
+                                }
                             });
                         }
                     });
@@ -337,35 +366,117 @@
          */
         mapAxeIdToIssueType(axeId) {
             const mapping = {
+                // Language
                 'html-has-lang': 'missing_page_language',
                 'html-lang-valid': 'invalid_page_language',
-                'frame-title': 'iframe_missing_title',
+                'valid-lang': 'invalid_language_attribute',
+
+                // Images
                 'image-alt': 'missing_alt',
+                'input-image-alt': 'missing_alt',
+                'role-img-alt': 'role_img_missing_alt',
+                'svg-img-alt': 'svg_missing_alt',
+                'area-alt': 'area_missing_alt',
+                'object-alt': 'object_missing_alt',
+
+                // Frames
+                'frame-title': 'iframe_missing_title',
+                'frame-focusable-content': 'frame_focusable_content',
+
+                // Forms
+                'label': 'missing_label',
+                'form-field-multiple-labels': 'multiple_labels',
+                'select-name': 'select_missing_name',
+                'input-button-name': 'input_button_missing_name',
+                'autocomplete-valid': 'invalid_autocomplete',
+
+                // Buttons & Links
                 'button-name': 'button_missing_accessible_name',
                 'link-name': 'link_no_accessible_name',
-                'label': 'missing_label',
+                'link-in-text-block': 'link_distinguishable',
+
+                // Color & Contrast
                 'color-contrast': 'low_contrast',
+                'color-contrast-enhanced': 'low_contrast_enhanced',
+
+                // Headings
                 'heading-order': 'heading_hierarchy_skip',
-                'duplicate-id': 'duplicate_ids',
+                'empty-heading': 'empty_heading',
+                'empty-table-header': 'empty_table_header',
+
+                // Tables
+                'td-headers-attr': 'table_headers_invalid',
+                'th-has-data-cells': 'table_header_no_data',
+                'table-duplicate-name': 'table_duplicate_name',
+                'table-fake-caption': 'table_fake_caption',
+                'scope-attr-valid': 'invalid_scope_attribute',
+
+                // Landmarks & Structure
                 'landmark-one-main': 'missing_main_landmark',
-                'region': 'missing_main_landmark',
+                'region': 'content_outside_landmark',
+                'landmark-banner-is-top-level': 'banner_not_top_level',
+                'landmark-contentinfo-is-top-level': 'contentinfo_not_top_level',
+                'landmark-main-is-top-level': 'main_not_top_level',
+                'landmark-no-duplicate-banner': 'duplicate_banner',
+                'landmark-no-duplicate-contentinfo': 'duplicate_contentinfo',
+                'landmark-no-duplicate-main': 'duplicate_main',
+                'landmark-unique': 'landmark_not_unique',
                 'bypass': 'missing_skip_links',
                 'document-title': 'missing_page_title',
-                'form-field-multiple-labels': 'multiple_labels',
-                'input-image-alt': 'missing_alt',
-                'video-caption': 'video_missing_captions',
-                'audio-caption': 'audio_missing_transcript',
-                'tabindex': 'tabindex_issue',
-                'aria-allowed-attr': 'invalid_aria',
+
+                // Duplicate IDs
+                'duplicate-id': 'duplicate_ids',
+                'duplicate-id-active': 'duplicate_active_id',
+                'duplicate-id-aria': 'duplicate_aria_id',
+
+                // ARIA
+                'aria-allowed-attr': 'aria_invalid_attribute',
+                'aria-allowed-role': 'aria_invalid_role',
+                'aria-command-name': 'aria_command_missing_name',
+                'aria-dialog-name': 'aria_dialog_missing_name',
+                'aria-hidden-body': 'aria_hidden_body',
+                'aria-hidden-focus': 'aria_hidden_focus',
+                'aria-input-field-name': 'aria_input_missing_name',
+                'aria-meter-name': 'aria_meter_missing_name',
+                'aria-progressbar-name': 'aria_progressbar_missing_name',
                 'aria-required-attr': 'missing_aria',
+                'aria-required-children': 'aria_missing_children',
+                'aria-required-parent': 'aria_missing_parent',
+                'aria-roles': 'invalid_aria_role',
+                'aria-roledescription': 'aria_invalid_roledescription',
+                'aria-toggle-field-name': 'aria_toggle_missing_name',
+                'aria-tooltip-name': 'aria_tooltip_missing_name',
+                'aria-treeitem-name': 'aria_treeitem_missing_name',
                 'aria-valid-attr': 'invalid_aria',
                 'aria-valid-attr-value': 'invalid_aria_value',
-                'empty-heading': 'empty_heading',
-                'link-in-text-block': 'link_distinguishable',
-                'meta-viewport': 'viewport_scaling_disabled',
-                'accesskeys': 'accesskey_issue',
+
+                // Keyboard & Focus
+                'tabindex': 'tabindex_issue',
+                'focus-order-semantics': 'focus_order_issue',
                 'focus-visible': 'focus_not_visible',
-                'scrollable-region-focusable': 'scrollable_not_focusable'
+                'scrollable-region-focusable': 'scrollable_not_focusable',
+                'nested-interactive': 'nested_interactive',
+
+                // Media
+                'video-caption': 'video_missing_captions',
+                'audio-caption': 'audio_missing_transcript',
+                'no-autoplay-audio': 'audio_autoplay',
+
+                // Viewport
+                'meta-viewport': 'viewport_scaling_disabled',
+                'meta-viewport-large': 'viewport_too_small',
+                'meta-refresh': 'meta_refresh',
+
+                // Other
+                'accesskeys': 'accesskey_issue',
+                'server-side-image-map': 'server_side_image_map',
+                'blink': 'blink_element',
+                'marquee': 'marquee_element',
+                'definition-list': 'definition_list_invalid',
+                'dlitem': 'dlitem_invalid',
+                'list': 'list_invalid',
+                'listitem': 'listitem_invalid',
+                'p-as-heading': 'p_used_as_heading'
             };
 
             return mapping[axeId] || axeId;
@@ -402,8 +513,17 @@
                 };
                 const severity = severityMap[violation.impact] || 'medium';
 
-                // Add to issues array
+                // Add to issues array - each issue gets node info where available
                 for (let i = 0; i < violation.count; i++) {
+                    // Use available node data, cycling through examples
+                    const nodeIndex = Math.min(i, violation.nodes.length - 1);
+                    const node = violation.nodes[nodeIndex] || violation.nodes[0] || {};
+
+                    // Format the target selector
+                    const targetSelector = Array.isArray(node.target)
+                        ? node.target.join(' > ')
+                        : (node.target || '');
+
                     const issue = {
                         type: issueType,
                         axe_id: violation.id,
@@ -412,8 +532,11 @@
                         description: violation.description,
                         help_url: violation.helpUrl,
                         wcag_tags: violation.tags.filter(tag => tag.startsWith('wcag')),
-                        page_url: violation.nodes[0]?.pageUrl || '',
-                        page_title: violation.nodes[0]?.page || ''
+                        page_url: node.pageUrl || '',
+                        page_title: node.page || '',
+                        element_selector: targetSelector,
+                        html_snippet: node.html || '',
+                        failure_summary: node.failureSummary || ''
                     };
 
                     converted.issues.push(issue);

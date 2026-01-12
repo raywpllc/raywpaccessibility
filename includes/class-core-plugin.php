@@ -578,7 +578,123 @@ class Plugin {
         
         return $filtered_pages;
     }
-    
+
+    /**
+     * Map axe-core violation IDs to our internal issue types
+     * @param string $axe_id - axe-core violation ID
+     * @return string - Internal issue type
+     */
+    private function map_axe_id_to_issue_type($axe_id) {
+        $mapping = [
+            // Language
+            'html-has-lang' => 'missing_page_language',
+            'html-lang-valid' => 'invalid_page_language',
+            'valid-lang' => 'invalid_language_attribute',
+
+            // Images
+            'image-alt' => 'missing_alt',
+            'input-image-alt' => 'missing_alt',
+            'role-img-alt' => 'role_img_missing_alt',
+            'svg-img-alt' => 'svg_missing_alt',
+            'area-alt' => 'area_missing_alt',
+            'object-alt' => 'object_missing_alt',
+
+            // Frames
+            'frame-title' => 'iframe_missing_title',
+            'frame-focusable-content' => 'frame_focusable_content',
+
+            // Forms
+            'label' => 'missing_label',
+            'form-field-multiple-labels' => 'multiple_labels',
+            'select-name' => 'select_missing_name',
+            'input-button-name' => 'input_button_missing_name',
+            'autocomplete-valid' => 'invalid_autocomplete',
+
+            // Buttons & Links
+            'button-name' => 'button_missing_accessible_name',
+            'link-name' => 'link_no_accessible_name',
+            'link-in-text-block' => 'link_distinguishable',
+
+            // Color & Contrast
+            'color-contrast' => 'low_contrast',
+            'color-contrast-enhanced' => 'low_contrast_enhanced',
+
+            // Headings
+            'heading-order' => 'heading_hierarchy_skip',
+            'empty-heading' => 'empty_heading',
+            'empty-table-header' => 'empty_table_header',
+
+            // Landmarks & Structure
+            'landmark-one-main' => 'missing_main_landmark',
+            'region' => 'content_outside_landmark',
+            'landmark-banner-is-top-level' => 'banner_not_top_level',
+            'landmark-contentinfo-is-top-level' => 'contentinfo_not_top_level',
+            'landmark-main-is-top-level' => 'main_not_top_level',
+            'landmark-no-duplicate-banner' => 'duplicate_banner',
+            'landmark-no-duplicate-contentinfo' => 'duplicate_contentinfo',
+            'landmark-no-duplicate-main' => 'duplicate_main',
+            'landmark-unique' => 'landmark_not_unique',
+            'bypass' => 'missing_skip_links',
+            'document-title' => 'missing_page_title',
+
+            // Duplicate IDs
+            'duplicate-id' => 'duplicate_ids',
+            'duplicate-id-active' => 'duplicate_active_id',
+            'duplicate-id-aria' => 'duplicate_aria_id',
+
+            // ARIA
+            'aria-allowed-attr' => 'aria_invalid_attribute',
+            'aria-allowed-role' => 'aria_invalid_role',
+            'aria-command-name' => 'aria_command_missing_name',
+            'aria-dialog-name' => 'aria_dialog_missing_name',
+            'aria-hidden-body' => 'aria_hidden_body',
+            'aria-hidden-focus' => 'aria_hidden_focus',
+            'aria-input-field-name' => 'aria_input_missing_name',
+            'aria-meter-name' => 'aria_meter_missing_name',
+            'aria-progressbar-name' => 'aria_progressbar_missing_name',
+            'aria-required-attr' => 'missing_aria',
+            'aria-required-children' => 'aria_missing_children',
+            'aria-required-parent' => 'aria_missing_parent',
+            'aria-roles' => 'invalid_aria_role',
+            'aria-roledescription' => 'aria_invalid_roledescription',
+            'aria-toggle-field-name' => 'aria_toggle_missing_name',
+            'aria-tooltip-name' => 'aria_tooltip_missing_name',
+            'aria-treeitem-name' => 'aria_treeitem_missing_name',
+            'aria-valid-attr' => 'invalid_aria',
+            'aria-valid-attr-value' => 'invalid_aria_value',
+
+            // Keyboard & Focus
+            'tabindex' => 'tabindex_issue',
+            'focus-order-semantics' => 'focus_order_issue',
+            'focus-visible' => 'focus_not_visible',
+            'scrollable-region-focusable' => 'scrollable_not_focusable',
+            'nested-interactive' => 'nested_interactive',
+
+            // Media
+            'video-caption' => 'video_missing_captions',
+            'audio-caption' => 'audio_missing_transcript',
+            'no-autoplay-audio' => 'audio_autoplay',
+
+            // Viewport
+            'meta-viewport' => 'viewport_scaling_disabled',
+            'meta-viewport-large' => 'viewport_too_small',
+            'meta-refresh' => 'meta_refresh',
+
+            // Other
+            'accesskeys' => 'accesskey_issue',
+            'server-side-image-map' => 'server_side_image_map',
+            'blink' => 'blink_element',
+            'marquee' => 'marquee_element',
+            'definition-list' => 'definition_list_invalid',
+            'dlitem' => 'dlitem_invalid',
+            'list' => 'list_invalid',
+            'listitem' => 'listitem_invalid',
+            'p-as-heading' => 'p_used_as_heading'
+        ];
+
+        return isset($mapping[$axe_id]) ? $mapping[$axe_id] : $axe_id;
+    }
+
     /**
      * Calculate accessibility score based on issues found
      */
@@ -1461,6 +1577,41 @@ class Plugin {
         $fixed_avg_weight = $fixed_weight / $pages_scanned;
         $fixed_score = max(0, round(100 - $fixed_avg_weight));
 
+        // Build per-page breakdown from raw results
+        $page_details = [];
+        if (!empty($raw_results['pages'])) {
+            foreach ($raw_results['pages'] as $page) {
+                $page_url = $page['url'] ?? '';
+                $page_title = $page['title'] ?? 'Unknown';
+                $page_violations = $page['violations'] ?? [];
+
+                // Count original issues (all violations on this page)
+                $original_count = 0;
+                $remaining_count = 0;
+
+                foreach ($page_violations as $violation) {
+                    $node_count = count($violation['nodes'] ?? []);
+                    $original_count += $node_count;
+
+                    // Check if this violation type is auto-fixable
+                    $axe_id = $violation['id'] ?? '';
+                    $issue_type = $this->map_axe_id_to_issue_type($axe_id);
+
+                    if (!$admin_instance->is_auto_fixable($issue_type)) {
+                        $remaining_count += $node_count;
+                    }
+                }
+
+                $page_details[] = [
+                    'url' => $page_url,
+                    'title' => $page_title,
+                    'original_issues' => $original_count,
+                    'remaining_issues' => $remaining_count,
+                    'success' => $page['success'] ?? false
+                ];
+            }
+        }
+
         // Prepare response data
         $response_data = [
             'original_score' => $original_score,
@@ -1474,7 +1625,7 @@ class Plugin {
                 'remaining' => $remaining_issues,
                 'unfixable' => []
             ],
-            'details' => $raw_results ?? [],
+            'details' => $page_details,
             'scan_type' => 'axe-core-iframe',
             'timestamp' => current_time('mysql')
         ];

@@ -1363,9 +1363,20 @@ class Admin {
                                                             </td>
                                                             <td style="padding: 12px 0; color: #1d2327;">
                                                                 <?php echo esc_html($this->get_issue_description($type)); ?>
-                                                                <?php if (!empty($data['sample']['page_title'])): ?>
+                                                                <?php if (!empty($data['sample']['page_title']) || !empty($data['sample']['html_snippet'])): ?>
                                                                     <div style="font-size: 12px; color: #6c757d; margin-top: 4px;">
-                                                                        Example: <a href="<?php echo esc_url($data['sample']['page_url'] ?? '#'); ?>" target="_blank"><?php echo esc_html($data['sample']['page_title']); ?></a>
+                                                                        <?php if (!empty($data['sample']['page_title'])): ?>
+                                                                            Example: <a href="<?php echo esc_url($data['sample']['page_url'] ?? '#'); ?>" target="_blank"><?php echo esc_html($data['sample']['page_title']); ?></a>
+                                                                        <?php endif; ?>
+                                                                        <?php if (!empty($data['sample']['html_snippet'])): ?>
+                                                                            <div style="margin-top: 8px; background: #f8f9fa; padding: 8px 12px; border-radius: 4px; border: 1px solid #e9ecef; font-family: monospace; font-size: 11px; overflow-x: auto; max-width: 500px; white-space: nowrap;">
+                                                                                <code style="color: #e83e8c;"><?php echo esc_html(substr($data['sample']['html_snippet'], 0, 200)); ?><?php echo strlen($data['sample']['html_snippet']) > 200 ? '...' : ''; ?></code>
+                                                                            </div>
+                                                                        <?php elseif (!empty($data['sample']['element_selector'])): ?>
+                                                                            <div style="margin-top: 8px; background: #f8f9fa; padding: 8px 12px; border-radius: 4px; border: 1px solid #e9ecef; font-family: monospace; font-size: 11px;">
+                                                                                <code style="color: #6f42c1;"><?php echo esc_html($data['sample']['element_selector']); ?></code>
+                                                                            </div>
+                                                                        <?php endif; ?>
                                                                     </div>
                                                                 <?php endif; ?>
                                                             </td>
@@ -1778,45 +1789,129 @@ class Admin {
         $descriptions = [
             // Images
             'missing_alt' => 'Missing alt text on images',
-            
+            'role_img_missing_alt' => 'Elements with role="img" missing alt text',
+            'svg_missing_alt' => 'SVG images missing accessible names',
+            'area_missing_alt' => 'Image map areas missing alt text',
+            'object_missing_alt' => 'Object elements missing accessible names',
+
             // Forms
             'missing_label' => 'Form fields missing labels',
+            'multiple_labels' => 'Form fields have multiple conflicting labels',
+            'select_missing_name' => 'Select elements missing accessible names',
+            'input_button_missing_name' => 'Input buttons missing accessible names',
+            'invalid_autocomplete' => 'Invalid autocomplete attribute values',
             'required_no_aria' => 'Required form fields missing ARIA attributes',
             'validation_no_error_message' => 'Form validation lacks clear error messages',
             'missing_autocomplete_attribute' => 'Form fields missing autocomplete attributes',
             'error_no_role' => 'Error messages missing proper ARIA roles',
             'generic_error_message' => 'Form errors use generic messages',
-            
-            // Structure
+
+            // Structure & Landmarks
             'missing_main_landmark' => 'Missing main content landmark',
+            'content_outside_landmark' => 'Content not contained within landmarks',
+            'banner_not_top_level' => 'Banner landmark not at top level',
+            'contentinfo_not_top_level' => 'Footer landmark not at top level',
+            'main_not_top_level' => 'Main landmark not at top level',
+            'duplicate_banner' => 'Page has multiple banner landmarks',
+            'duplicate_contentinfo' => 'Page has multiple footer landmarks',
+            'duplicate_main' => 'Page has multiple main landmarks',
+            'landmark_not_unique' => 'Landmark regions not uniquely labeled',
             'missing_skip_links' => 'Missing skip navigation links',
+            'missing_page_title' => 'Page missing document title',
+
+            // Headings
             'multiple_h1' => 'Multiple H1 headings on page',
             'heading_hierarchy_skip' => 'Heading hierarchy skips levels',
-            
+            'empty_heading' => 'Empty heading elements',
+            'empty_table_header' => 'Table headers are empty',
+
+            // Tables
+            'table_headers_invalid' => 'Table headers attribute values are invalid',
+            'table_header_no_data' => 'Table headers have no associated data cells',
+            'table_duplicate_name' => 'Table has duplicate accessible names',
+            'table_fake_caption' => 'Table uses fake caption element',
+            'invalid_scope_attribute' => 'Table has invalid scope attribute',
+
+            // Duplicate IDs
+            'duplicate_ids' => 'Duplicate ID attributes',
+            'duplicate_active_id' => 'Active elements have duplicate IDs',
+            'duplicate_aria_id' => 'ARIA-referenced elements have duplicate IDs',
+
+            // ARIA Issues
+            'aria_invalid_attribute' => 'ARIA attributes not allowed on element',
+            'aria_invalid_role' => 'Invalid role attribute on element',
+            'aria_command_missing_name' => 'ARIA command missing accessible name',
+            'aria_dialog_missing_name' => 'Dialog missing accessible name',
+            'aria_hidden_body' => 'Body element has aria-hidden=true',
+            'aria_hidden_focus' => 'Focusable element within aria-hidden container',
+            'aria_input_missing_name' => 'ARIA input field missing accessible name',
+            'aria_meter_missing_name' => 'Meter element missing accessible name',
+            'aria_progressbar_missing_name' => 'Progress bar missing accessible name',
+            'missing_aria' => 'Required ARIA attributes missing',
+            'aria_missing_children' => 'ARIA role missing required child roles',
+            'aria_missing_parent' => 'ARIA role missing required parent role',
+            'invalid_aria_role' => 'Invalid ARIA role value',
+            'aria_invalid_roledescription' => 'Invalid aria-roledescription usage',
+            'aria_toggle_missing_name' => 'ARIA toggle field missing accessible name',
+            'aria_tooltip_missing_name' => 'Tooltip missing accessible name',
+            'aria_treeitem_missing_name' => 'Tree item missing accessible name',
+            'invalid_aria' => 'Invalid ARIA attribute usage',
+            'invalid_aria_value' => 'Invalid ARIA attribute value',
+
+            // Keyboard & Focus
+            'tabindex_issue' => 'Invalid tabindex attribute value',
+            'focus_order_issue' => 'Focus order semantics incorrect',
+            'focus_not_visible' => 'Focus indicator not visible',
+            'scrollable_not_focusable' => 'Scrollable region not keyboard accessible',
+            'nested_interactive' => 'Interactive controls nested within each other',
+            'keyboard_trap' => 'Keyboard navigation trap detected',
+            'missing_focus_indicator' => 'Interactive elements missing focus indicators',
+
             // Media
+            'video_missing_captions' => 'Video missing captions',
+            'audio_missing_transcript' => 'Audio missing transcript',
+            'audio_autoplay' => 'Audio autoplays without user control',
             'decorative_video_no_aria_hidden' => 'Decorative videos not marked with ARIA hidden',
             'autoplay_motion_video' => 'Videos autoplay with motion',
-            
+
             // Links & Buttons
             'link_no_accessible_name' => 'Links without descriptive text',
+            'link_distinguishable' => 'Links not distinguishable from surrounding text',
             'button_missing_accessible_name' => 'Buttons missing accessible names',
-            
+
+            // Viewport & Layout
+            'viewport_scaling_disabled' => 'Viewport zooming is disabled',
+            'viewport_too_small' => 'Viewport maximum scale too restrictive',
+            'meta_refresh' => 'Page uses meta refresh',
+
             // Text & Contrast
+            'low_contrast' => 'Insufficient color contrast',
+            'low_contrast_enhanced' => 'Does not meet enhanced contrast requirements',
             'restrictive_text_spacing' => 'Text spacing may be too restrictive',
             'low_contrast_text' => 'Low contrast text',
-            
-            // IDs & Language
-            'duplicate_ids' => 'Duplicate ID attributes',
+
+            // Language
             'missing_page_language' => 'Page language not declared',
-            
+            'invalid_page_language' => 'Invalid language code on page',
+            'invalid_language_attribute' => 'Invalid lang attribute value',
+
             // IFrames
             'missing_iframe_title' => 'IFrames missing title attributes',
-            
-            // Keyboard & Focus
-            'keyboard_trap' => 'Keyboard navigation trap detected',
-            'missing_focus_indicator' => 'Interactive elements missing focus indicators'
+            'iframe_missing_title' => 'IFrames missing title attributes',
+            'frame_focusable_content' => 'Frame has focusable content issues',
+
+            // Other
+            'accesskey_issue' => 'Accesskey attribute conflicts',
+            'server_side_image_map' => 'Server-side image map used',
+            'blink_element' => 'Deprecated blink element used',
+            'marquee_element' => 'Deprecated marquee element used',
+            'definition_list_invalid' => 'Definition list structure invalid',
+            'dlitem_invalid' => 'Definition list item invalid',
+            'list_invalid' => 'List structure invalid',
+            'listitem_invalid' => 'List item not properly contained',
+            'p_used_as_heading' => 'Paragraph styled as heading'
         ];
-        
+
         return isset($descriptions[$issue_type]) ? $descriptions[$issue_type] : str_replace('_', ' ', ucfirst($issue_type));
     }
     
@@ -1925,43 +2020,79 @@ class Admin {
     public function is_auto_fixable($issue_type) {
         // Check which auto-fixes are currently enabled in settings
         $settings = get_option('raywp_accessibility_settings', []);
-        
+
+        // Helper to check if a setting is enabled (default true if not set)
+        $is_enabled = function($key, $default = false) use ($settings) {
+            if (!isset($settings[$key])) {
+                return $default;
+            }
+            return !empty($settings[$key]);
+        };
+
         $auto_fixable_map = [
-            'missing_alt' => !empty($settings['fix_forms']),
-            'missing_label' => !empty($settings['fix_forms']),
-            'missing_main_landmark' => !empty($settings['add_main_landmark']),
-            'missing_skip_links' => !empty($settings['add_main_landmark']),
-            'button_missing_accessible_name' => !empty($settings['fix_button_names']) || !isset($settings['fix_button_names']),
-            'heading_hierarchy_skip' => !empty($settings['fix_heading_hierarchy']),
-            'multiple_h1' => !empty($settings['fix_heading_hierarchy']), // Fixed by converting extras to h2 with aria-level
-            'duplicate_ids' => !empty($settings['fix_duplicate_ids']),
-            'missing_page_language' => !empty($settings['fix_page_language']),
-            'missing_iframe_title' => !empty($settings['fix_iframe_titles']) || !isset($settings['fix_iframe_titles']),
-            'iframe_missing_title' => !empty($settings['fix_iframe_titles']) || !isset($settings['fix_iframe_titles']), // Alternative naming
-            
-            // Convert previously manual issues to auto-fixable
-            'required_no_aria' => !empty($settings['fix_forms']), // Can add aria-required automatically
-            'link_no_accessible_name' => !empty($settings['fix_generic_links']) || !isset($settings['fix_generic_links']), // Can add generic accessible names
-            'generic_link_text' => !empty($settings['fix_generic_links']) || !isset($settings['fix_generic_links']), // Can add descriptive title attributes
-            'decorative_video_no_aria_hidden' => !empty($settings['fix_video_accessibility']), // Can add aria-hidden to decorative videos
-            'validation_no_error_message' => !empty($settings['fix_forms']), // Can add basic error messaging
-            'missing_autocomplete_attribute' => !empty($settings['fix_forms']), // Can add standard autocomplete attributes
-            'error_no_role' => !empty($settings['fix_forms']), // Can add role="alert" to error messages  
-            'generic_error_message' => !empty($settings['fix_forms']), // Can improve error messages
-            'animation_no_reduced_motion' => true, // CSS already handles prefers-reduced-motion
-            'transform_animation_no_control' => true, // CSS already handles prefers-reduced-motion for transforms
-            
-            // Contrast issues are auto-fixable when enhanced contrast is enabled
-            'low_contrast' => false, // DISABLED: Contrast fixes were too aggressive and disrupting layout
-            
-            // These remain manual as requested by user
-            'autoplay_motion_video' => false, // Videos autoplay with motion - requires manual intervention
-            'restrictive_text_spacing' => false, // Text spacing may be too restrictive - requires manual CSS review
-            
-            // Empty links should be auto-fixable since we're excluding admin toolbar links
-            'empty_link' => true, // Empty links can be handled automatically
+            // Language - plugin adds lang attribute to html element
+            'missing_page_language' => $is_enabled('fix_page_language'),
+            'invalid_page_language' => $is_enabled('fix_page_language'),
+
+            // Landmarks - plugin can add main landmark wrapper
+            'missing_main_landmark' => $is_enabled('add_main_landmark'),
+            'content_outside_landmark' => $is_enabled('add_main_landmark'), // Fixed by wrapping content in main
+
+            // Skip links - plugin adds skip navigation
+            'missing_skip_links' => $is_enabled('add_main_landmark'),
+
+            // Buttons - plugin can add aria-label to empty buttons
+            'button_missing_accessible_name' => $is_enabled('fix_button_names', true),
+            'input_button_missing_name' => $is_enabled('fix_button_names', true),
+
+            // Links - plugin can add accessible names
+            'link_no_accessible_name' => $is_enabled('fix_generic_links', true),
+            'generic_link_text' => $is_enabled('fix_generic_links', true),
+            'empty_link' => $is_enabled('fix_generic_links', true),
+
+            // Headings - plugin can fix heading hierarchy
+            'heading_hierarchy_skip' => $is_enabled('fix_heading_hierarchy'),
+            'multiple_h1' => $is_enabled('fix_heading_hierarchy'),
+            'empty_heading' => $is_enabled('fix_heading_hierarchy'),
+
+            // IFrames - plugin adds title attributes
+            'missing_iframe_title' => $is_enabled('fix_iframe_titles', true),
+            'iframe_missing_title' => $is_enabled('fix_iframe_titles', true),
+
+            // Duplicate IDs - plugin can make IDs unique
+            'duplicate_ids' => $is_enabled('fix_duplicate_ids'),
+            'duplicate_active_id' => $is_enabled('fix_duplicate_ids'),
+            'duplicate_aria_id' => $is_enabled('fix_duplicate_ids'),
+
+            // Forms - plugin can enhance form accessibility
+            'missing_label' => $is_enabled('fix_forms'),
+            'required_no_aria' => $is_enabled('fix_forms'),
+            'validation_no_error_message' => $is_enabled('fix_forms'),
+            'missing_autocomplete_attribute' => $is_enabled('fix_forms'),
+            'error_no_role' => $is_enabled('fix_forms'),
+            'generic_error_message' => $is_enabled('fix_forms'),
+
+            // Images - basic alt text handling
+            'missing_alt' => $is_enabled('fix_forms'), // Basic placeholder alt
+
+            // Videos/Animation
+            'decorative_video_no_aria_hidden' => $is_enabled('fix_video_accessibility'),
+            'animation_no_reduced_motion' => true, // CSS handles prefers-reduced-motion
+            'transform_animation_no_control' => true, // CSS handles prefers-reduced-motion
+
+            // These remain MANUAL - cannot be auto-fixed safely
+            'low_contrast' => false, // Too aggressive, disrupts layout
+            'autoplay_motion_video' => false, // Requires manual intervention
+            'restrictive_text_spacing' => false, // Requires CSS review
+            'aria_invalid_role' => false, // Requires understanding context
+            'aria_invalid_attribute' => false, // Requires understanding context
+            'role_img_missing_alt' => false, // Requires meaningful alt text
+            'aria_hidden_focus' => false, // Could break functionality
+            'nested_interactive' => false, // Requires restructuring
+            'video_missing_captions' => false, // Requires creating captions
+            'audio_missing_transcript' => false, // Requires creating transcript
         ];
-        
+
         // Return true only if the fix is both available and enabled
         return isset($auto_fixable_map[$issue_type]) && $auto_fixable_map[$issue_type];
     }
