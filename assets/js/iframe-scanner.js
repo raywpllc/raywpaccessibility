@@ -301,6 +301,7 @@
 
         /**
          * Calculate accessibility score from axe-core results
+         * Score is normalized per page to handle real-world issue counts
          * @param {Object} results - Results from scanMultiplePages
          * @returns {number} - Score from 0-100
          */
@@ -321,8 +322,12 @@
                 totalWeight += weight * violation.count;
             });
 
-            // Score is 100 minus penalties, minimum 0
-            return Math.max(0, 100 - totalWeight);
+            // Normalize by pages scanned for per-page average
+            const pagesCount = Math.max(1, results.pages ? results.pages.length : 1);
+            const avgWeight = totalWeight / pagesCount;
+
+            // Score is 100 minus penalties per page, minimum 0
+            return Math.max(0, Math.round(100 - avgWeight));
         }
 
         /**

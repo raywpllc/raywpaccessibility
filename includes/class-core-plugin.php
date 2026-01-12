@@ -387,6 +387,7 @@ class Plugin {
             
             // Calculate overall score using severity-weighted scoring from in-memory data
             // This avoids database timing/caching issues
+            // Score is normalized per page to handle real-world issue counts
             error_log('RayWP Accessibility: Calculating scan score from in-memory results...');
 
             $severity_weights = [
@@ -407,10 +408,14 @@ class Plugin {
                 }
             }
 
-            // Score is 100 minus weighted penalties, minimum 0
-            $score = max(0, 100 - $total_weight);
+            // Normalize by pages scanned for per-page average
+            $pages_count = max(1, count($pages));
+            $avg_weight = $total_weight / $pages_count;
 
-            error_log("RayWP Accessibility: Calculated score from memory: $score (total_weight: $total_weight)");
+            // Score is 100 minus weighted penalties per page, minimum 0
+            $score = max(0, round(100 - $avg_weight));
+
+            error_log("RayWP Accessibility: Calculated score from memory: $score (total_weight: $total_weight, pages: $pages_count, avg: $avg_weight)");
             
             error_log('RayWP Accessibility: Preparing response...');
             $response_data = [
@@ -1425,7 +1430,7 @@ class Plugin {
             }
         }
 
-        // Calculate scores using severity-weighted scoring
+        // Calculate scores using severity-weighted scoring, normalized per page
         $severity_weights = [
             'critical' => 10,
             'high' => 5,
@@ -1436,13 +1441,17 @@ class Plugin {
             'minor' => 1
         ];
 
+        $pages_scanned = max(1, $results['pages_scanned'] ?? 1); // Avoid division by zero
+
         // Original score (all issues before any fixes)
         $original_weight = 0;
         foreach ($all_issues as $issue) {
             $severity = $issue['severity'] ?? 'medium';
             $original_weight += $severity_weights[$severity] ?? 3;
         }
-        $original_score = max(0, 100 - $original_weight);
+        // Normalize by pages scanned to get a per-page average
+        $original_avg_weight = $original_weight / $pages_scanned;
+        $original_score = max(0, round(100 - $original_avg_weight));
 
         // Fixed score (only manual issues remaining)
         $fixed_weight = 0;
@@ -1450,7 +1459,9 @@ class Plugin {
             $severity = $issue['severity'] ?? 'medium';
             $fixed_weight += $severity_weights[$severity] ?? 3;
         }
-        $fixed_score = max(0, 100 - $fixed_weight);
+        // Normalize by pages scanned
+        $fixed_avg_weight = $fixed_weight / $pages_scanned;
+        $fixed_score = max(0, round(100 - $fixed_avg_weight));
 
         // Prepare response data
         $response_data = [
