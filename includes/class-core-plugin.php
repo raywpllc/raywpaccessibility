@@ -1156,23 +1156,34 @@ class Plugin {
             return;
         }
         
+        // Calculate total original issues (before fixes)
+        $total_original_issues = 0;
+        foreach ($results as $result) {
+            $total_original_issues += $result['original_issues'];
+        }
+
+        // Calculate original score (before fixes)
+        $original_score = $this->calculate_scan_score($total_original_issues, count($results));
+
         // Calculate score with fixes - count only manual issues
         $manual_issue_count = 0;
         $admin_instance = new \RayWP\Accessibility\Admin\Admin();
-        
+
         // Count only issues that are not auto-fixable and not info-level
         foreach ($issue_breakdown['remaining'] as $issue) {
-            if (isset($issue['severity']) && $issue['severity'] !== 'info' && 
+            if (isset($issue['severity']) && $issue['severity'] !== 'info' &&
                 isset($issue['type']) && !$admin_instance->is_auto_fixable($issue['type'])) {
                 $manual_issue_count++;
             }
         }
-        
+
         $fixed_score = $this->calculate_scan_score($manual_issue_count, count($results));
-        
+
         // Store the detailed results for persistence across page loads
         $scan_results_data = [
+            'original_score' => $original_score,
             'fixed_score' => $fixed_score,
+            'total_original_issues' => $total_original_issues,
             'total_issues' => $total_issues,
             'pages_scanned' => count($results),
             'details' => $results,

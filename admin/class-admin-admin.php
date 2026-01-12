@@ -1190,13 +1190,20 @@ class Admin {
                     <h2><?php esc_html_e('Accessibility Status', 'raywp-accessibility'); ?></h2>
                     
                     <?php if ($compliance_assessment !== null): ?>
+                        <?php
+                        // Get original score from dual scan results if available
+                        $original_score = null;
+                        if (!empty($dual_scan_results) && isset($dual_scan_results['original_score'])) {
+                            $original_score = intval($dual_scan_results['original_score']);
+                        }
+                        ?>
                         <!-- Score Comparison Display -->
                         <div style="display: flex; align-items: center; gap: 20px; margin: 20px 0; padding: 25px; background: #f8f9fa; border-radius: 8px; border: 1px solid #e9ecef;">
                             <!-- Original Score -->
                             <div style="text-align: center; padding: 20px; background: #fff; border-radius: 8px; border: 1px solid #dee2e6; min-width: 140px;">
                                 <div style="font-size: 13px; color: #6c757d; margin-bottom: 8px; font-weight: 500;">Original Theme Score</div>
-                                <div style="font-size: 42px; font-weight: bold; color: <?php echo isset($compliance_assessment['original_score']) && $compliance_assessment['original_score'] >= 90 ? '#28a745' : (isset($compliance_assessment['original_score']) && $compliance_assessment['original_score'] >= 70 ? '#ffc107' : '#dc3545'); ?>;">
-                                    <?php echo isset($compliance_assessment['original_score']) ? esc_html($compliance_assessment['original_score']) : '--'; ?>%
+                                <div style="font-size: 42px; font-weight: bold; color: <?php echo $original_score !== null && $original_score >= 90 ? '#28a745' : ($original_score !== null && $original_score >= 70 ? '#ffc107' : '#dc3545'); ?>;">
+                                    <?php echo $original_score !== null ? esc_html($original_score) : '--'; ?>%
                                 </div>
                             </div>
                             
@@ -1267,15 +1274,96 @@ class Admin {
                         <!-- Status Section -->
                         <div style="margin: 20px 0;">
                             <h3 style="color: #1d2327; margin-bottom: 15px; font-size: 18px;">Requires Manual Attention</h3>
-                            
+
                             <!-- Manual Issues -->
-                            <?php 
-                            // Use detailed manual issues data that includes location information
-                            if (!$has_post_fix_scan): ?>
+                            <?php
+                            // Check if we have dual scan results with remaining issues
+                            $has_dual_scan_remaining = !empty($dual_scan_results) && !empty($dual_scan_results['issue_breakdown']['remaining']);
+
+                            if (!$has_post_fix_scan && !$has_dual_scan_remaining): ?>
                                 <div style="background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px; padding: 20px; text-align: center;">
                                     <p style="color: #6c757d; margin: 0;">
                                         <em>Click "Check Score with Fixes" to see remaining issues after auto-fixes are applied.</em>
                                     </p>
+                                </div>
+                            <?php elseif ($has_dual_scan_remaining): ?>
+                                <!-- Display remaining issues from dual scan -->
+                                <div style="margin-bottom: 20px;">
+                                    <div style="background: #fff; border: 1px solid #dee2e6; border-radius: 8px; overflow: hidden;">
+                                        <div style="padding: 15px;">
+                                            <table style="width: 100%; border-collapse: collapse;">
+                                                <thead>
+                                                    <tr style="border-bottom: 1px solid #dee2e6;">
+                                                        <th style="text-align: left; padding: 8px 0; font-size: 13px; color: #6c757d; width: 100px;">Severity</th>
+                                                        <th style="text-align: left; padding: 8px 0; font-size: 13px; color: #6c757d;">Issue</th>
+                                                        <th style="text-align: right; padding: 8px 0; font-size: 13px; color: #6c757d; width: 120px;">Count</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <?php
+                                                    // Group remaining issues by type for display
+                                                    $remaining_by_type = [];
+                                                    foreach ($dual_scan_results['issue_breakdown']['remaining'] as $issue) {
+                                                        $type = $issue['type'] ?? 'unknown';
+                                                        $severity = $issue['severity'] ?? 'medium';
+                                                        if (!isset($remaining_by_type[$type])) {
+                                                            $remaining_by_type[$type] = [
+                                                                'count' => 0,
+                                                                'severity' => $severity,
+                                                                'sample' => $issue
+                                                            ];
+                                                        }
+                                                        $remaining_by_type[$type]['count']++;
+                                                    }
+
+                                                    foreach ($remaining_by_type as $type => $data):
+                                                        $severity = $data['severity'];
+                                                        $severity_bg_colors = [
+                                                            'critical' => '#dc3545',
+                                                            'high' => '#dc3545',
+                                                            'serious' => '#dc3545',
+                                                            'medium' => '#ffc107',
+                                                            'moderate' => '#ffc107',
+                                                            'low' => '#6c757d',
+                                                            'minor' => '#6c757d',
+                                                            'info' => '#17a2b8'
+                                                        ];
+                                                        $severity_text_colors = [
+                                                            'critical' => 'white',
+                                                            'high' => 'white',
+                                                            'serious' => 'white',
+                                                            'medium' => '#212529',
+                                                            'moderate' => '#212529',
+                                                            'low' => 'white',
+                                                            'minor' => 'white',
+                                                            'info' => 'white'
+                                                        ];
+                                                        $bg_color = $severity_bg_colors[$severity] ?? '#6c757d';
+                                                        $text_color = $severity_text_colors[$severity] ?? 'white';
+                                                    ?>
+                                                        <tr style="border-bottom: 1px solid #f8f9fa;">
+                                                            <td style="padding: 12px 0;">
+                                                                <span style="background: <?php echo esc_attr($bg_color); ?>; color: <?php echo esc_attr($text_color); ?>; padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 500;">
+                                                                    <?php echo esc_html(ucfirst($severity)); ?>
+                                                                </span>
+                                                            </td>
+                                                            <td style="padding: 12px 0; color: #1d2327;">
+                                                                <?php echo esc_html($this->get_issue_description($type)); ?>
+                                                                <?php if (!empty($data['sample']['page_title'])): ?>
+                                                                    <div style="font-size: 12px; color: #6c757d; margin-top: 4px;">
+                                                                        Example: <a href="<?php echo esc_url($data['sample']['page_url'] ?? '#'); ?>" target="_blank"><?php echo esc_html($data['sample']['page_title']); ?></a>
+                                                                    </div>
+                                                                <?php endif; ?>
+                                                            </td>
+                                                            <td style="padding: 12px 0; text-align: right; color: #6c757d; font-size: 14px;">
+                                                                <?php echo intval($data['count']); ?> <?php echo $data['count'] == 1 ? 'issue' : 'issues'; ?>
+                                                            </td>
+                                                        </tr>
+                                                    <?php endforeach; ?>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
                                 </div>
                             <?php elseif (!empty($detailed_manual_issues)): ?>
                                 <div style="margin-bottom: 20px;">
@@ -1445,7 +1533,7 @@ class Admin {
                                 <?php if (!empty($issue_breakdown['fixed'])): ?>
                                     <!-- Auto-Fixed Issues from Dual Scan -->
                                     <div style="margin: 20px 0; padding: 15px; background: #d4edda; border-left: 4px solid #28a745; border-radius: 4px;">
-                                        <h4 style="margin: 0 0 10px 0; cursor: pointer;" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'; this.querySelector('.toggle-indicator').textContent = this.nextElementSibling.style.display === 'none' ? '▼' : '▲';">
+                                        <h4 style="margin: 0 0 10px 0; cursor: pointer;" onclick="var content = this.nextElementSibling.nextElementSibling; content.style.display = content.style.display === 'none' ? 'block' : 'none'; this.querySelector('.toggle-indicator').textContent = content.style.display === 'none' ? '▼' : '▲';">
                                             ✓ Auto-Fixed Issues (<?php echo count($issue_breakdown['fixed']); ?> total)
                                             <span class="toggle-indicator">▼</span>
                                         </h4>
@@ -1486,7 +1574,7 @@ class Admin {
                                 <?php if (!empty($issue_breakdown['remaining'])): ?>
                                     <!-- Remaining Issues from Dual Scan -->
                                     <div style="margin: 20px 0; padding: 15px; background: #fff3cd; border-left: 4px solid #ffc107; border-radius: 4px;">
-                                        <h4 style="margin: 0 0 10px 0; cursor: pointer;" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'; this.querySelector('.toggle-indicator').textContent = this.nextElementSibling.style.display === 'none' ? '▼' : '▲';">
+                                        <h4 style="margin: 0 0 10px 0; cursor: pointer;" onclick="var content = this.nextElementSibling.nextElementSibling; content.style.display = content.style.display === 'none' ? 'block' : 'none'; this.querySelector('.toggle-indicator').textContent = content.style.display === 'none' ? '▼' : '▲';">
                                             ⚠ Remaining Issues (<?php echo count($issue_breakdown['remaining']); ?> total)
                                             <span class="toggle-indicator">▼</span>
                                         </h4>

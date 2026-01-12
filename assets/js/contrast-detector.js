@@ -327,3 +327,4 @@ class ContrastDetector {
 
 // Export for use in other scripts
 window.ContrastDetector = ContrastDetector;
+window.ContrastDetector = ContrastDetector;
