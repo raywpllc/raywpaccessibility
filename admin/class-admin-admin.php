@@ -150,20 +150,29 @@ class Admin {
                 true
             );
 
-            // Use CDN for axe-core (stable version 4.8.2)
+            // Use local axe-core library (v4.8.4)
             wp_enqueue_script(
                 'axe-core',
-                'https://cdnjs.cloudflare.com/ajax/libs/axe-core/4.8.2/axe.min.js',
+                RAYWP_ACCESSIBILITY_PLUGIN_URL . 'assets/js/axe.min.js',
                 [],
-                '4.8.2',
+                '4.8.4',
                 true
             );
-            
+
+            // Enqueue iframe-based scanner for real browser testing
+            wp_enqueue_script(
+                'raywp-iframe-scanner',
+                RAYWP_ACCESSIBILITY_PLUGIN_URL . 'assets/js/iframe-scanner.js',
+                ['jquery', 'axe-core'],
+                RAYWP_ACCESSIBILITY_VERSION,
+                true
+            );
+
             // Enqueue our axe integration script
             wp_enqueue_script(
                 'raywp-axe-integration',
                 RAYWP_ACCESSIBILITY_PLUGIN_URL . 'assets/js/axe-integration.js',
-                ['jquery', 'axe-core'],
+                ['jquery', 'axe-core', 'raywp-iframe-scanner'],
                 RAYWP_ACCESSIBILITY_VERSION,
                 true
             );
@@ -188,13 +197,18 @@ class Admin {
             'ajaxurl' => admin_url('admin-ajax.php'),
             'nonce' => wp_create_nonce('raywp_accessibility_nonce'),
             'contrast_nonce' => wp_create_nonce('raywp_contrast_check'),
+            'siteUrl' => home_url(),
+            'adminUrl' => admin_url(),
+            'pluginUrl' => RAYWP_ACCESSIBILITY_PLUGIN_URL,
             'strings' => [
                 'confirm_delete' => __('Are you sure you want to delete this rule?', 'raywp-accessibility'),
                 'testing_selector' => __('Testing selector...', 'raywp-accessibility'),
                 'scanning_forms' => __('Scanning forms...', 'raywp-accessibility'),
                 'applying_fixes' => __('Applying fixes...', 'raywp-accessibility'),
                 'success' => __('Success!', 'raywp-accessibility'),
-                'error' => __('An error occurred', 'raywp-accessibility')
+                'error' => __('An error occurred', 'raywp-accessibility'),
+                'scanning_page' => __('Scanning page %d of %d...', 'raywp-accessibility'),
+                'scan_complete' => __('Scan complete!', 'raywp-accessibility')
             ]
         ]);
 

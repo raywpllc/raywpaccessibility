@@ -108,6 +108,7 @@ class Plugin {
         add_action('wp_ajax_raywp_accessibility_delete_color_override', [$this, 'ajax_delete_color_override']);
         add_action('wp_ajax_raywp_accessibility_get_pages_list', [$this, 'ajax_get_pages_list']);
         add_action('wp_ajax_raywp_accessibility_store_axe_results', [$this, 'ajax_store_axe_results']);
+        add_action('wp_ajax_raywp_accessibility_process_axe_results', [$this, 'ajax_process_axe_results']);
         add_action('wp_ajax_raywp_accessibility_get_css_overrides', [$this, 'ajax_get_css_overrides']);
         add_action('wp_ajax_raywp_accessibility_clear_scan_data', [$this, 'ajax_clear_scan_data']);
         
@@ -384,32 +385,32 @@ class Plugin {
                 }
             }
             
-            // Calculate overall score using the Reports page method for consistency
-            error_log('RayWP Accessibility: Calculating scan score...');
-            
-            // Clear cache to ensure fresh data
-            wp_cache_delete('raywp_compliance_assessment', 'raywp_accessibility');
-            
-            // Get the reports component to calculate the correct score
-            $reports = $this->get_component('reports');
-            $score = 0;
-            
-            if ($reports) {
-                // Use calculate_accessibility_score() directly to get the numeric score
-                $calculated_score = $reports->calculate_accessibility_score();
+            // Calculate overall score using severity-weighted scoring from in-memory data
+            // This avoids database timing/caching issues
+            error_log('RayWP Accessibility: Calculating scan score from in-memory results...');
 
-                if ($calculated_score !== null) {
-                    $score = $calculated_score;
-                } else {
-                    // Fallback to simple calculation if score calculation fails
-                    $score = max(0, min(100, round(100 - (($total_issues / max(1, count($pages))) * 5))));
+            $severity_weights = [
+                'critical' => 10,
+                'high' => 5,
+                'medium' => 3,
+                'low' => 1
+            ];
+
+            $total_weight = 0;
+            foreach ($results as $page_result) {
+                if (isset($page_result['issues']) && is_array($page_result['issues'])) {
+                    foreach ($page_result['issues'] as $issue) {
+                        $severity = $issue['severity'] ?? 'medium';
+                        $weight = $severity_weights[$severity] ?? 3;
+                        $total_weight += $weight;
+                    }
                 }
-            } else {
-                // Basic fallback calculation
-                $score = max(0, min(100, round(100 - (($total_issues / max(1, count($pages))) * 5))));
             }
-            
-            error_log("RayWP Accessibility: Calculated score: $score");
+
+            // Score is 100 minus weighted penalties, minimum 0
+            $score = max(0, 100 - $total_weight);
+
+            error_log("RayWP Accessibility: Calculated score from memory: $score (total_weight: $total_weight)");
             
             error_log('RayWP Accessibility: Preparing response...');
             $response_data = [
@@ -1201,25 +1202,56 @@ class Plugin {
     
     /**
      * Determine if an issue should be automatically fixed by the plugin
+     * Uses the same comprehensive logic as Admin::is_auto_fixable()
      */
     private function should_issue_be_auto_fixed($issue) {
-        $auto_fixable_types = ['missing_alt', 'missing_aria_controls', 'missing_main_landmark', 'missing_form_labels'];
-        
-        if (in_array($issue['type'], $auto_fixable_types)) {
+        $settings = get_option('raywp_accessibility_settings', []);
+        $issue_type = $issue['type'] ?? '';
+
+        // Comprehensive auto-fixable map matching Admin::is_auto_fixable()
+        $auto_fixable_map = [
+            'missing_alt' => !empty($settings['fix_forms']),
+            'missing_label' => !empty($settings['fix_forms']),
+            'missing_main_landmark' => !empty($settings['add_main_landmark']),
+            'missing_skip_links' => !empty($settings['add_main_landmark']),
+            'button_missing_accessible_name' => !empty($settings['fix_button_names']) || !isset($settings['fix_button_names']),
+            'heading_hierarchy_skip' => !empty($settings['fix_heading_hierarchy']),
+            'multiple_h1' => !empty($settings['fix_heading_hierarchy']),
+            'duplicate_ids' => !empty($settings['fix_duplicate_ids']),
+            'missing_page_language' => !empty($settings['fix_page_language']),
+            'missing_iframe_title' => !empty($settings['fix_iframe_titles']) || !isset($settings['fix_iframe_titles']),
+            'iframe_missing_title' => !empty($settings['fix_iframe_titles']) || !isset($settings['fix_iframe_titles']),
+            'required_no_aria' => !empty($settings['fix_forms']),
+            'link_no_accessible_name' => !empty($settings['fix_generic_links']) || !isset($settings['fix_generic_links']),
+            'generic_link_text' => !empty($settings['fix_generic_links']) || !isset($settings['fix_generic_links']),
+            'decorative_video_no_aria_hidden' => !empty($settings['fix_video_accessibility']),
+            'validation_no_error_message' => !empty($settings['fix_forms']),
+            'missing_autocomplete_attribute' => !empty($settings['fix_forms']),
+            'error_no_role' => !empty($settings['fix_forms']),
+            'generic_error_message' => !empty($settings['fix_forms']),
+            'animation_no_reduced_motion' => true,
+            'transform_animation_no_control' => true,
+            'empty_link' => true,
+            'missing_form_labels' => !empty($settings['fix_forms']),
+            'missing_aria_controls' => !empty($settings['enable_aria']),
+        ];
+
+        // Check if the issue type is in the auto-fixable map and is enabled
+        if (isset($auto_fixable_map[$issue_type]) && $auto_fixable_map[$issue_type]) {
             return true;
         }
-        
-        // Special case for tracking pixels
-        if ($issue['type'] === 'missing_alt' && isset($issue['element_details']['attributes'])) {
+
+        // Special case for tracking pixels (1x1 images)
+        if ($issue_type === 'missing_alt' && isset($issue['element_details']['attributes'])) {
             $style = $issue['element_details']['attributes']['style'] ?? '';
             $width = $issue['element_details']['attributes']['width'] ?? '';
             $height = $issue['element_details']['attributes']['height'] ?? '';
-            
+
             if ((strpos($style, 'display:none') !== false) || ($width === '1' && $height === '1')) {
                 return true;
             }
         }
-        
+
         return false;
     }
     
@@ -1342,7 +1374,117 @@ class Plugin {
         error_log('RayWP: ajax_get_pages_list - getting pages');
         $pages = $this->get_pages_for_scanning();
         error_log('RayWP: ajax_get_pages_list - found ' . count($pages) . ' pages');
-        wp_send_json_success($pages);
+        wp_send_json_success(['pages' => $pages]);
+    }
+
+    /**
+     * AJAX handler for processing axe-core scan results
+     * Receives results from browser-based axe-core scanning and processes them
+     */
+    public function ajax_process_axe_results() {
+        check_ajax_referer('raywp_accessibility_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['message' => 'Unauthorized']);
+            return;
+        }
+
+        // Get the JSON results from the request
+        $results_json = isset($_POST['results']) ? wp_unslash($_POST['results']) : '';
+        $raw_results_json = isset($_POST['raw_results']) ? wp_unslash($_POST['raw_results']) : '';
+
+        if (empty($results_json)) {
+            wp_send_json_error(['message' => 'No results provided']);
+            return;
+        }
+
+        $results = json_decode($results_json, true);
+        $raw_results = json_decode($raw_results_json, true);
+
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            wp_send_json_error(['message' => 'Invalid JSON in results']);
+            return;
+        }
+
+        // Get admin instance for auto-fixable checking
+        $admin_instance = new \RayWP\Accessibility\Admin\Admin();
+
+        // Process issues - separate into auto-fixable and manual
+        $fixed_issues = [];
+        $remaining_issues = [];
+        $all_issues = $results['issues'] ?? [];
+
+        foreach ($all_issues as $issue) {
+            $issue_type = $issue['type'] ?? '';
+
+            // Check if this issue type is auto-fixable with current settings
+            if ($admin_instance->is_auto_fixable($issue_type)) {
+                $fixed_issues[] = $issue;
+            } else {
+                $remaining_issues[] = $issue;
+            }
+        }
+
+        // Calculate scores using severity-weighted scoring
+        $severity_weights = [
+            'critical' => 10,
+            'high' => 5,
+            'serious' => 5,
+            'medium' => 3,
+            'moderate' => 3,
+            'low' => 1,
+            'minor' => 1
+        ];
+
+        // Original score (all issues before any fixes)
+        $original_weight = 0;
+        foreach ($all_issues as $issue) {
+            $severity = $issue['severity'] ?? 'medium';
+            $original_weight += $severity_weights[$severity] ?? 3;
+        }
+        $original_score = max(0, 100 - $original_weight);
+
+        // Fixed score (only manual issues remaining)
+        $fixed_weight = 0;
+        foreach ($remaining_issues as $issue) {
+            $severity = $issue['severity'] ?? 'medium';
+            $fixed_weight += $severity_weights[$severity] ?? 3;
+        }
+        $fixed_score = max(0, 100 - $fixed_weight);
+
+        // Prepare response data
+        $response_data = [
+            'original_score' => $original_score,
+            'fixed_score' => $fixed_score,
+            'pages_scanned' => $results['pages_scanned'] ?? 0,
+            'total_issues' => count($all_issues),
+            'fixed_count' => count($fixed_issues),
+            'remaining_count' => count($remaining_issues),
+            'issue_breakdown' => [
+                'fixed' => $fixed_issues,
+                'remaining' => $remaining_issues,
+                'unfixable' => []
+            ],
+            'details' => $raw_results ?? [],
+            'scan_type' => 'axe-core-iframe',
+            'timestamp' => current_time('mysql')
+        ];
+
+        // Store results for persistence
+        update_option('raywp_accessibility_scan_with_fixes_results', $response_data);
+        update_option('raywp_accessibility_live_score', $fixed_score);
+        update_option('raywp_accessibility_live_score_timestamp', current_time('mysql'));
+
+        // Also store the axe-core specific results
+        update_option('raywp_accessibility_axe_results', [
+            'violations_by_type' => $raw_results['violations_by_type'] ?? [],
+            'total_violations' => $raw_results['total_violations'] ?? 0,
+            'pages_scanned' => $raw_results['pages_scanned'] ?? 0,
+            'duration' => $raw_results['duration'] ?? 0,
+            'timestamp' => current_time('mysql')
+        ]);
+
+        wp_send_json_success($response_data);
     }
     
     /**

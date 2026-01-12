@@ -2,8 +2,8 @@
  * RayWP Accessibility - Axe Integration
  * Handles "Check Score With Fixes" functionality
  *
- * This script manages dual scanning: comparing accessibility scores
- * with and without the plugin's auto-fixes applied.
+ * This script uses real browser-based axe-core scanning via iframes
+ * to accurately detect accessibility issues in the rendered DOM.
  */
 
 (function($) {
@@ -22,11 +22,14 @@
             remainingIssuesContainer: '#remaining-issues-breakdown'
         },
         ajaxActions: {
-            scanWithFixes: 'raywp_accessibility_scan_with_fixes',
-            storeLiveScore: 'raywp_accessibility_store_live_score',
-            getPagesList: 'raywp_accessibility_get_pages_list'
+            getPagesList: 'raywp_accessibility_get_pages_list',
+            processAxeResults: 'raywp_accessibility_process_axe_results',
+            storeLiveScore: 'raywp_accessibility_store_live_score'
         }
     };
+
+    // Scanner instance
+    let scanner = null;
 
     /**
      * Initialize the axe integration
@@ -34,6 +37,14 @@
     function init() {
         // Show the "Check Score With Fixes" button
         $(CONFIG.selectors.checkFixedScoreBtn).show();
+
+        // Initialize the iframe scanner
+        if (window.RayWPIframeScanner) {
+            scanner = new window.RayWPIframeScanner();
+            scanner.init();
+        } else {
+            console.error('RayWP: IframeScanner not loaded');
+        }
 
         // Bind event handlers
         bindEvents();
@@ -52,63 +63,123 @@
 
     /**
      * Handle "Check Score With Fixes" button click
+     * Uses browser-based axe-core scanning via iframes
      */
-    function handleCheckFixedScore(e) {
+    async function handleCheckFixedScore(e) {
         e.preventDefault();
+
+        if (!scanner) {
+            showErrorMessage('Scanner not initialized. Please refresh the page and try again.');
+            return;
+        }
 
         const $button = $(this);
         const originalText = $button.text();
 
         // Disable button and show progress
         $button.prop('disabled', true);
-        showProgress('Initializing dual scan...', 0);
+        showProgress('Getting list of pages to scan...', 0);
 
-        // Call the AJAX endpoint
-        $.ajax({
-            url: raywpAccessibility.ajaxurl,
-            type: 'POST',
-            data: {
-                action: CONFIG.ajaxActions.scanWithFixes,
-                nonce: raywpAccessibility.nonce
-            },
-            timeout: 180000, // 3 minute timeout for dual scan
-            xhr: function() {
-                const xhr = new window.XMLHttpRequest();
-                // Progress tracking (if server supports it)
-                xhr.addEventListener('progress', function(evt) {
-                    if (evt.lengthComputable) {
-                        const percentComplete = (evt.loaded / evt.total) * 100;
-                        updateProgress('Scanning...', percentComplete);
-                    }
-                });
-                return xhr;
-            },
-            beforeSend: function() {
-                showProgress('Scanning pages with and without fixes...', 10);
-            },
-            success: function(response) {
-                hideProgress();
-                $button.prop('disabled', false).text(originalText);
+        try {
+            // Step 1: Get list of pages to scan from server
+            const pages = await getPagesList();
 
-                if (response.success) {
-                    displayScanResults(response.data);
-                    showSuccessMessage('Scan complete! Found ' + response.data.total_issues + ' remaining issues.');
-                } else {
-                    showErrorMessage('Scan failed: ' + (response.data || 'Unknown error'));
-                }
-            },
-            error: function(xhr, status, error) {
-                hideProgress();
-                $button.prop('disabled', false).text(originalText);
-
-                let errorMsg = 'Scan request failed';
-                if (status === 'timeout') {
-                    errorMsg = 'Scan timed out. Try scanning fewer pages.';
-                } else if (error) {
-                    errorMsg += ': ' + error;
-                }
-                showErrorMessage(errorMsg);
+            if (!pages || pages.length === 0) {
+                throw new Error('No pages found to scan');
             }
+
+            showProgress(`Found ${pages.length} pages to scan with axe-core...`, 5);
+
+            // Step 2: Scan each page using iframe + axe-core
+            const scanResults = await scanner.scanMultiplePages(pages, (current, total, title, status) => {
+                const percent = 5 + ((current / total) * 85); // 5-90%
+                let message = `Scanning page ${current} of ${total}: ${title}`;
+                if (status && status !== 'scanning') {
+                    message += ` (${status})`;
+                }
+                showProgress(message, percent);
+            });
+
+            showProgress('Processing results...', 92);
+
+            // Step 3: Convert results to our internal format
+            const convertedResults = scanner.convertToInternalFormat(scanResults);
+
+            // Step 4: Send results to server for processing
+            showProgress('Saving results...', 95);
+            const processedResults = await processAxeResults(convertedResults, scanResults);
+
+            hideProgress();
+            $button.prop('disabled', false).text(originalText);
+
+            // Display results
+            displayScanResults(processedResults);
+            showSuccessMessage(`Scan complete! Scanned ${scanResults.pages.length} pages with axe-core.`);
+
+        } catch (error) {
+            hideProgress();
+            $button.prop('disabled', false).text(originalText);
+            showErrorMessage('Scan failed: ' + error.message);
+            console.error('Scan error:', error);
+        }
+    }
+
+    /**
+     * Get list of pages to scan from server
+     */
+    function getPagesList() {
+        return new Promise((resolve, reject) => {
+            $.ajax({
+                url: raywpAccessibility.ajaxurl,
+                type: 'POST',
+                data: {
+                    action: CONFIG.ajaxActions.getPagesList,
+                    nonce: raywpAccessibility.nonce
+                },
+                success: function(response) {
+                    if (response.success && response.data && response.data.pages) {
+                        resolve(response.data.pages);
+                    } else {
+                        reject(new Error(response.data || 'Failed to get pages list'));
+                    }
+                },
+                error: function(xhr, status, error) {
+                    reject(new Error('AJAX error: ' + error));
+                }
+            });
+        });
+    }
+
+    /**
+     * Send axe-core results to server for processing
+     */
+    function processAxeResults(convertedResults, rawResults) {
+        return new Promise((resolve, reject) => {
+            $.ajax({
+                url: raywpAccessibility.ajaxurl,
+                type: 'POST',
+                data: {
+                    action: CONFIG.ajaxActions.processAxeResults,
+                    nonce: raywpAccessibility.nonce,
+                    results: JSON.stringify(convertedResults),
+                    raw_results: JSON.stringify({
+                        pages_scanned: rawResults.pages.length,
+                        total_violations: rawResults.totalViolations,
+                        violations_by_type: rawResults.violationsByType,
+                        duration: rawResults.duration
+                    })
+                },
+                success: function(response) {
+                    if (response.success) {
+                        resolve(response.data);
+                    } else {
+                        reject(new Error(response.data || 'Failed to process results'));
+                    }
+                },
+                error: function(xhr, status, error) {
+                    reject(new Error('AJAX error: ' + error));
+                }
+            });
         });
     }
 
@@ -120,6 +191,11 @@
 
         // Update Live Score display
         updateLiveScoreDisplay(data.fixed_score);
+
+        // Also update Original Score if provided
+        if (data.original_score !== undefined) {
+            updateOriginalScoreDisplay(data.original_score);
+        }
 
         // Build and display the results HTML
         const resultsHtml = buildResultsHtml(data);
@@ -135,6 +211,13 @@
 
         // Store the live score for persistence
         storeLiveScore(data.fixed_score);
+
+        // Reload page to show updated "Requires Manual Attention" section
+        setTimeout(() => {
+            if (confirm('Scan complete! Reload page to see updated results?')) {
+                window.location.reload();
+            }
+        }, 500);
     }
 
     /**
@@ -147,11 +230,18 @@
         html += '<div class="raywp-scan-summary" style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e9ecef;">';
         html += '<h3 style="margin-top: 0;">Scan Results</h3>';
         html += '<p><strong>Live Score (with fixes):</strong> ' + data.fixed_score + '%</p>';
+        if (data.original_score !== undefined) {
+            html += '<p><strong>Original Score (before fixes):</strong> ' + data.original_score + '%</p>';
+        }
         html += '<p><strong>Pages Scanned:</strong> ' + data.pages_scanned + '</p>';
-        html += '<p><strong>Remaining Issues:</strong> ' + data.total_issues + '</p>';
+        html += '<p><strong>Total Issues Found:</strong> ' + data.total_issues + '</p>';
         if (data.timestamp) {
             html += '<p><small>Last scan: ' + data.timestamp + '</small></p>';
         }
+        html += '<p style="margin-top: 15px; padding: 10px; background: #e7f3ff; border-radius: 4px; font-size: 13px;">';
+        html += '<strong>Note:</strong> This scan used axe-core to analyze the actual rendered pages, ';
+        html += 'including all JavaScript and CSS. Results reflect real accessibility issues in the live site.';
+        html += '</p>';
         html += '</div>';
 
         // Issue breakdown
@@ -169,20 +259,10 @@
             // Remaining issues (need manual attention)
             if (data.issue_breakdown.remaining && data.issue_breakdown.remaining.length > 0) {
                 html += buildIssueSection(
-                    'Remaining Issues',
+                    'Remaining Issues (Require Manual Attention)',
                     data.issue_breakdown.remaining,
                     'remaining',
-                    'These issues require manual attention.'
-                );
-            }
-
-            // Unfixable issues (should have been fixed but weren\'t)
-            if (data.issue_breakdown.unfixable && data.issue_breakdown.unfixable.length > 0) {
-                html += buildIssueSection(
-                    'Unfixable Issues',
-                    data.issue_breakdown.unfixable,
-                    'unfixable',
-                    'These issues could not be automatically fixed.'
+                    'These issues were found by axe-core and require manual fixes.'
                 );
             }
         }
@@ -192,17 +272,15 @@
             html += '<div class="raywp-page-breakdown" style="margin-top: 20px;">';
             html += '<h4>Page-by-Page Breakdown</h4>';
             html += '<table class="wp-list-table widefat fixed striped">';
-            html += '<thead><tr><th>Page</th><th>Original Issues</th><th>Remaining Issues</th><th>Fixed</th></tr></thead>';
+            html += '<thead><tr><th>Page</th><th>Issues</th><th>Status</th></tr></thead>';
             html += '<tbody>';
 
             data.details.forEach(function(page) {
-                const fixed = page.original_issues - page.remaining_issues;
-                const fixedClass = fixed > 0 ? 'style="color: #28a745;"' : '';
+                const statusClass = page.success ? 'style="color: #28a745;"' : 'style="color: #dc3545;"';
                 html += '<tr>';
                 html += '<td><a href="' + escapeHtml(page.url) + '" target="_blank">' + escapeHtml(page.title || page.url) + '</a></td>';
-                html += '<td>' + page.original_issues + '</td>';
-                html += '<td>' + page.remaining_issues + '</td>';
-                html += '<td ' + fixedClass + '>' + (fixed > 0 ? '+' + fixed + ' fixed' : '0') + '</td>';
+                html += '<td>' + (page.violations ? page.violations.length : 0) + '</td>';
+                html += '<td ' + statusClass + '>' + (page.success ? 'Scanned' : 'Error: ' + escapeHtml(page.error || 'Unknown')) + '</td>';
                 html += '</tr>';
             });
 
@@ -236,11 +314,13 @@
         // Group issues by type for summary
         const issuesByType = {};
         issues.forEach(function(issue) {
-            const issueType = issue.type || 'unknown';
+            const issueType = issue.type || issue.axe_id || 'unknown';
             if (!issuesByType[issueType]) {
                 issuesByType[issueType] = {
                     count: 0,
-                    sample: issue
+                    sample: issue,
+                    severity: issue.severity || 'medium',
+                    help_url: issue.help_url || null
                 };
             }
             issuesByType[issueType].count++;
@@ -257,20 +337,21 @@
 
         // Show summary by type
         html += '<table class="wp-list-table widefat fixed striped" style="background: #fff;">';
-        html += '<thead><tr><th>Issue Type</th><th>Count</th><th>Sample Page</th></tr></thead>';
+        html += '<thead><tr><th>Issue Type</th><th>Severity</th><th>Count</th><th>Help</th></tr></thead>';
         html += '<tbody>';
 
         Object.keys(issuesByType).forEach(function(issueType) {
             const data = issuesByType[issueType];
             const displayType = formatIssueType(issueType);
+            const severityBadge = getSeverityBadge(data.severity);
+
             html += '<tr>';
             html += '<td>' + escapeHtml(displayType) + '</td>';
+            html += '<td>' + severityBadge + '</td>';
             html += '<td>' + data.count + '</td>';
             html += '<td>';
-            if (data.sample.page_title) {
-                html += '<a href="' + escapeHtml(data.sample.page_url || '#') + '" target="_blank">' + escapeHtml(data.sample.page_title) + '</a>';
-            } else if (data.sample.page_url) {
-                html += '<a href="' + escapeHtml(data.sample.page_url) + '" target="_blank">' + escapeHtml(data.sample.page_url) + '</a>';
+            if (data.help_url) {
+                html += '<a href="' + escapeHtml(data.help_url) + '" target="_blank" rel="noopener">Learn more</a>';
             } else {
                 html += '-';
             }
@@ -286,11 +367,29 @@
     }
 
     /**
+     * Get severity badge HTML
+     */
+    function getSeverityBadge(severity) {
+        const colors = {
+            critical: { bg: '#dc3545', text: '#fff' },
+            high: { bg: '#dc3545', text: '#fff' },
+            serious: { bg: '#dc3545', text: '#fff' },
+            medium: { bg: '#ffc107', text: '#212529' },
+            moderate: { bg: '#ffc107', text: '#212529' },
+            low: { bg: '#6c757d', text: '#fff' },
+            minor: { bg: '#6c757d', text: '#fff' }
+        };
+        const color = colors[severity] || colors.medium;
+        return '<span style="background: ' + color.bg + '; color: ' + color.text + '; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 500;">' + escapeHtml(severity.charAt(0).toUpperCase() + severity.slice(1)) + '</span>';
+    }
+
+    /**
      * Format issue type for display
      */
     function formatIssueType(type) {
         return type
             .replace(/_/g, ' ')
+            .replace(/-/g, ' ')
             .replace(/\b\w/g, function(l) { return l.toUpperCase(); });
     }
 
@@ -315,6 +414,24 @@
 
         // Also update any other score displays on the page
         $('.raywp-live-score').text(score + '%');
+    }
+
+    /**
+     * Update the Original Score display in the UI
+     */
+    function updateOriginalScoreDisplay(score) {
+        const $originalScore = $(CONFIG.selectors.originalScoreDisplay);
+        if ($originalScore.length > 0) {
+            $originalScore.text(score + '%');
+
+            let color = '#dc3545';
+            if (score >= 90) {
+                color = '#28a745';
+            } else if (score >= 70) {
+                color = '#ffc107';
+            }
+            $originalScore.css('color', color);
+        }
     }
 
     /**
@@ -345,9 +462,6 @@
      */
     function loadStoredResults() {
         // Results are loaded via PHP, but we can enhance the display here
-        // The PHP already outputs stored results, this function can add interactivity
-
-        // Add click handlers for collapsible sections
         initCollapsibleSections();
     }
 
@@ -355,7 +469,6 @@
      * Initialize collapsible sections
      */
     function initCollapsibleSections() {
-        // Make issue section headers clickable to expand/collapse
         $(document).on('click', '.raywp-issue-section h4', function() {
             const $details = $(this).siblings('.issue-details-list');
             const $indicator = $(this).find('.toggle-indicator');
@@ -381,7 +494,7 @@
         progressHtml += '<div class="progress-bar-container" style="background: #dee2e6; border-radius: 4px; height: 20px; overflow: hidden;">';
         progressHtml += '<div class="progress-bar" style="background: #007cba; height: 100%; width: ' + percent + '%; transition: width 0.3s;"></div>';
         progressHtml += '</div>';
-        progressHtml += '<p style="margin: 10px 0 0 0; font-size: 12px; color: #666;">This may take a minute as we scan each page twice (with and without fixes)...</p>';
+        progressHtml += '<p style="margin: 10px 0 0 0; font-size: 12px; color: #666;">Using axe-core to scan the actual rendered pages...</p>';
         progressHtml += '</div>';
 
         $container.html(progressHtml).show();
@@ -466,7 +579,6 @@
 
         $details.slideToggle(200);
 
-        // Update indicator after animation
         setTimeout(function() {
             $indicator.text($details.is(':visible') ? '▲' : '▼');
         }, 200);
