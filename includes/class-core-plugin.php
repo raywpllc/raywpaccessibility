@@ -513,26 +513,24 @@ class Plugin {
     private function get_pages_for_scanning() {
         $pages = [];
         $total_limit = 20; // Total limit for free version (excluding homepage)
-        $max_posts = 10;   // Allow up to 10 posts
-        $max_pages = 10;   // Allow up to 10 pages
-        
+
         // Add homepage
         $pages[] = [
             'title' => 'Homepage',
             'url' => home_url()
         ];
-        
-        // Get published posts
+
+        // Get published posts (fetch up to total_limit to ensure we have enough)
         $posts = get_posts([
-            'numberposts' => $max_posts,
+            'numberposts' => $total_limit,
             'post_status' => 'publish',
             'post_type' => 'post',
             'orderby' => 'date',
             'order' => 'DESC'
         ]);
-        
+
         $content_pages_added = 0;
-        
+
         // Add posts first (up to limit)
         foreach ($posts as $post) {
             if ($content_pages_added >= $total_limit) break;
@@ -542,16 +540,16 @@ class Plugin {
             ];
             $content_pages_added++;
         }
-        
+
         // Get published pages (only add if we haven't hit the limit)
         if ($content_pages_added < $total_limit) {
             $remaining_slots = $total_limit - $content_pages_added;
             $wp_pages = get_pages([
-                'number' => min($max_pages, $remaining_slots),
+                'number' => $remaining_slots,
                 'post_status' => 'publish',
                 'sort_column' => 'menu_order,post_title'
             ]);
-            
+
             foreach ($wp_pages as $page) {
                 if ($content_pages_added >= $total_limit) break;
                 $pages[] = [
