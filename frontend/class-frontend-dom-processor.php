@@ -1568,6 +1568,18 @@ class Dom_Processor {
             }
         }
 
+        // Fix images with role="presentation" that have aria-describedby or aria-labelledby
+        // These ARIA attributes imply semantic meaning, conflicting with presentation role
+        $imgs_with_aria = $xpath->query('//img[(@role="presentation" or @role="none") and (@aria-describedby or @aria-labelledby)]');
+
+        foreach ($imgs_with_aria as $img) {
+            $img->removeAttribute('role');
+
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('RayWP Accessibility: Removed role="presentation" from img with aria-describedby/aria-labelledby');
+            }
+        }
+
         if (defined('WP_DEBUG') && WP_DEBUG) {
             error_log('RayWP Accessibility: Completed presentation role conflict fixes');
         }

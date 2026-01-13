@@ -1292,10 +1292,11 @@ class Admin {
                             // Check for remaining issues from comparison scan first
                             $has_comparison_remaining = $has_comparison_scan && !empty($comparison_scan['with_fixes']['violations_by_type']);
 
-                            // Fallback to old dual scan results format
+                            // If comparison scan exists (even with 0 issues), don't fall back to old data
+                            // Only use dual scan results if NO comparison scan has been run
                             $has_remaining = !empty($dual_scan_results['issue_breakdown']['remaining']);
                             $has_unfixable = !empty($dual_scan_results['issue_breakdown']['unfixable']);
-                            $has_dual_scan_remaining = !empty($dual_scan_results) && ($has_remaining || $has_unfixable);
+                            $has_dual_scan_remaining = !$has_comparison_scan && !empty($dual_scan_results) && ($has_remaining || $has_unfixable);
 
                             if ($has_comparison_remaining): ?>
                                 <!-- Display remaining issues from comparison scan -->
@@ -1353,6 +1354,16 @@ class Admin {
                                             </table>
                                         </div>
                                     </div>
+                                </div>
+                            <?php elseif ($has_comparison_scan && !$has_comparison_remaining): ?>
+                                <!-- Comparison scan exists but has 0 remaining issues - show success! -->
+                                <div style="background: #d4edda; border: 1px solid #c3e6cb; border-radius: 8px; padding: 20px; text-align: center;">
+                                    <p style="color: #155724; margin: 0; font-size: 16px;">
+                                        <strong>✓ No accessibility issues detected!</strong>
+                                    </p>
+                                    <p style="color: #155724; margin: 10px 0 0 0; font-size: 14px;">
+                                        All detected issues have been automatically fixed by the plugin.
+                                    </p>
                                 </div>
                             <?php elseif (!$has_post_fix_scan && !$has_dual_scan_remaining): ?>
                                 <div style="background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px; padding: 20px; text-align: center;">
@@ -1982,347 +1993,76 @@ class Admin {
                     </div>
                 </div>
 
-                <!-- Debug Sections - Show detailed issue breakdown for verification -->
-                <?php if (!empty($dual_scan_results) && !empty($dual_scan_results['issue_breakdown'])): ?>
-                <div class="raywp-report-section" style="background: #fafafa; border: 2px dashed #ccc;">
-                    <h2 style="display: flex; align-items: center; gap: 10px;">
-                        🔍 Debug: Issue Breakdown
-                        <span style="font-size: 12px; font-weight: normal; color: #666;">(Detailed logging for verification)</span>
-                    </h2>
+                <!-- Debug Data - Output to console for troubleshooting (hidden from UI) -->
+                <?php
+                // Prepare debug data from the CORRECT source (comparison scan first, fallback to dual scan)
+                $debug_data = [];
 
-                    <?php
+                if ($has_comparison_scan) {
+                    // Use comparison scan data (current/accurate)
+                    $debug_data = [
+                        'source' => 'comparison_scan',
+                        'timestamp' => $comparison_scan['timestamp'] ?? null,
+                        'baseline' => [
+                            'score' => $comparison_scan['baseline']['score'] ?? 0,
+                            'total_issues' => $comparison_scan['baseline']['total_issues'] ?? 0,
+                            'violations_by_type' => $comparison_scan['baseline']['violations_by_type'] ?? [],
+                            'pages_scanned' => $comparison_scan['baseline']['pages_scanned'] ?? 0,
+                        ],
+                        'with_fixes' => [
+                            'score' => $comparison_scan['with_fixes']['score'] ?? 0,
+                            'total_issues' => $comparison_scan['with_fixes']['total_issues'] ?? 0,
+                            'violations_by_type' => $comparison_scan['with_fixes']['violations_by_type'] ?? [],
+                            'pages_scanned' => $comparison_scan['with_fixes']['pages_scanned'] ?? 0,
+                        ],
+                        'improvement' => $comparison_scan['improvement'] ?? [],
+                    ];
+                } elseif (!empty($dual_scan_results) && !empty($dual_scan_results['issue_breakdown'])) {
+                    // Fall back to dual scan data (legacy)
                     $issue_breakdown = $dual_scan_results['issue_breakdown'];
-                    $all_original_issues = [];
+                    $debug_data = [
+                        'source' => 'dual_scan_results (legacy)',
+                        'timestamp' => $dual_scan_results['timestamp'] ?? null,
+                        'detected_count' => count($issue_breakdown['detected'] ?? []),
+                        'fixed_count' => count($issue_breakdown['fixed'] ?? []),
+                        'remaining_count' => count($issue_breakdown['remaining'] ?? []),
+                        'unfixable_count' => count($issue_breakdown['unfixable'] ?? []),
+                        'issue_breakdown' => $issue_breakdown,
+                    ];
+                }
 
-                    // First check for issue_breakdown['detected'] (new structure from axe-core scan)
-                    if (!empty($issue_breakdown['detected'])) {
-                        $all_original_issues = $issue_breakdown['detected'];
-                    }
-                    // Fall back to nested details structure for backwards compatibility
-                    elseif (!empty($dual_scan_results['details'])) {
-                        foreach ($dual_scan_results['details'] as $page) {
-                            if (!empty($page['original_scan']['issues'])) {
-                                foreach ($page['original_scan']['issues'] as $issue) {
-                                    $issue['page_url'] = $page['url'];
-                                    $issue['page_title'] = $page['title'] ?? $page['url'];
-                                    $all_original_issues[] = $issue;
-                                }
-                            }
-                        }
-                    }
-
-                    // Get unfixable issues (auto-fixable but fix didn't work)
-                    $unfixable_issues = !empty($issue_breakdown['unfixable']) ? $issue_breakdown['unfixable'] : [];
-                    ?>
-
-                    <!-- Section 1: All Detected Issues -->
-                    <div style="margin: 15px 0; padding: 15px; background: #fff; border: 1px solid #ddd; border-radius: 4px;">
-                        <h4 style="margin: 0 0 10px 0; cursor: pointer; color: #333;" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'; this.querySelector('.toggle-indicator').textContent = this.nextElementSibling.style.display === 'none' ? '▼' : '▲';">
-                            📋 All Detected Issues (<?php echo count($all_original_issues); ?> total before fixes)
-                            <span class="toggle-indicator" style="margin-left: 10px;">▼</span>
-                        </h4>
-                        <div style="display: none; max-height: 400px; overflow-y: auto;">
-                            <?php if (!empty($all_original_issues)): ?>
-                                <?php
-                                // Group by issue type
-                                $by_type = [];
-                                foreach ($all_original_issues as $issue) {
-                                    $type = $issue['type'] ?? 'unknown';
-                                    if (!isset($by_type[$type])) {
-                                        $by_type[$type] = ['count' => 0, 'auto_fixable' => $issue['auto_fixable'] ?? false, 'severity' => $issue['severity'] ?? 'medium', 'samples' => []];
-                                    }
-                                    $by_type[$type]['count']++;
-                                    if (count($by_type[$type]['samples']) < 3) {
-                                        $by_type[$type]['samples'][] = $issue;
-                                    }
-                                }
-                                ksort($by_type);
-                                ?>
-                                <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
-                                    <thead style="background: #f5f5f5;">
-                                        <tr>
-                                            <th style="padding: 8px; text-align: left; border-bottom: 1px solid #ddd;">Issue Type</th>
-                                            <th style="padding: 8px; text-align: center; border-bottom: 1px solid #ddd;">Count</th>
-                                            <th style="padding: 8px; text-align: center; border-bottom: 1px solid #ddd;">Severity</th>
-                                            <th style="padding: 8px; text-align: center; border-bottom: 1px solid #ddd;">Auto-Fixable?</th>
-                                            <th style="padding: 8px; text-align: left; border-bottom: 1px solid #ddd;">Sample Element</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <?php foreach ($by_type as $type => $data): ?>
-                                            <tr style="border-bottom: 1px solid #eee;">
-                                                <td style="padding: 8px;">
-                                                    <strong><?php echo esc_html($this->get_issue_description($type)); ?></strong>
-                                                    <br><code style="font-size: 10px; color: #666;"><?php echo esc_html($type); ?></code>
-                                                </td>
-                                                <td style="padding: 8px; text-align: center; font-weight: bold;"><?php echo intval($data['count']); ?></td>
-                                                <td style="padding: 8px; text-align: center;">
-                                                    <span style="padding: 2px 8px; border-radius: 3px; font-size: 11px; background: <?php
-                                                        echo $data['severity'] === 'critical' ? '#dc3545' :
-                                                            ($data['severity'] === 'high' ? '#dc3545' :
-                                                            ($data['severity'] === 'medium' ? '#ffc107' : '#6c757d'));
-                                                    ?>; color: <?php echo $data['severity'] === 'medium' ? '#000' : '#fff'; ?>;">
-                                                        <?php echo esc_html(ucfirst($data['severity'])); ?>
-                                                    </span>
-                                                </td>
-                                                <td style="padding: 8px; text-align: center;">
-                                                    <?php if ($data['auto_fixable']): ?>
-                                                        <span style="color: #28a745;">✓ Yes</span>
-                                                    <?php else: ?>
-                                                        <span style="color: #dc3545;">✗ No</span>
-                                                    <?php endif; ?>
-                                                </td>
-                                                <td style="padding: 8px; font-family: monospace; font-size: 10px; max-width: 300px; overflow: hidden; text-overflow: ellipsis;">
-                                                    <?php
-                                                    if (!empty($data['samples'][0]['element'])) {
-                                                        echo esc_html(substr($data['samples'][0]['element'], 0, 80));
-                                                        if (strlen($data['samples'][0]['element']) > 80) echo '...';
-                                                    } else {
-                                                        echo '-';
-                                                    }
-                                                    ?>
-                                                </td>
-                                            </tr>
-                                        <?php endforeach; ?>
-                                    </tbody>
-                                </table>
-                            <?php else: ?>
-                                <p style="color: #666; margin: 10px 0;">No issues detected in original scan. Run "Check Score With Fixes" to see detailed breakdown.</p>
-                            <?php endif; ?>
-                        </div>
-                    </div>
-
-                    <!-- Section 2: Auto-Fixed Issues -->
-                    <div style="margin: 15px 0; padding: 15px; background: #e8f5e9; border: 1px solid #81c784; border-radius: 4px;">
-                        <h4 style="margin: 0 0 10px 0; cursor: pointer; color: #2e7d32;" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'; this.querySelector('.toggle-indicator').textContent = this.nextElementSibling.style.display === 'none' ? '▼' : '▲';">
-                            ✅ Auto-Fixed Issues (<?php echo !empty($issue_breakdown['fixed']) ? count($issue_breakdown['fixed']) : 0; ?> issues automatically fixed)
-                            <span class="toggle-indicator" style="margin-left: 10px;">▼</span>
-                        </h4>
-                        <div style="display: none; max-height: 400px; overflow-y: auto;">
-                            <?php if (!empty($issue_breakdown['fixed'])): ?>
-                                <?php
-                                // Group fixed issues by type
-                                $fixed_by_type = [];
-                                foreach ($issue_breakdown['fixed'] as $issue) {
-                                    $type = $issue['type'] ?? 'unknown';
-                                    if (!isset($fixed_by_type[$type])) {
-                                        $fixed_by_type[$type] = ['count' => 0, 'samples' => []];
-                                    }
-                                    $fixed_by_type[$type]['count']++;
-                                    if (count($fixed_by_type[$type]['samples']) < 2) {
-                                        $fixed_by_type[$type]['samples'][] = $issue;
-                                    }
-                                }
-                                ksort($fixed_by_type);
-                                ?>
-                                <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
-                                    <thead style="background: #c8e6c9;">
-                                        <tr>
-                                            <th style="padding: 8px; text-align: left; border-bottom: 1px solid #a5d6a7;">Issue Type Fixed</th>
-                                            <th style="padding: 8px; text-align: center; border-bottom: 1px solid #a5d6a7;">Count Fixed</th>
-                                            <th style="padding: 8px; text-align: left; border-bottom: 1px solid #a5d6a7;">Sample Page</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <?php foreach ($fixed_by_type as $type => $data): ?>
-                                            <tr style="border-bottom: 1px solid #c8e6c9;">
-                                                <td style="padding: 8px;">
-                                                    <strong><?php echo esc_html($this->get_issue_description($type)); ?></strong>
-                                                    <br><code style="font-size: 10px; color: #666;"><?php echo esc_html($type); ?></code>
-                                                </td>
-                                                <td style="padding: 8px; text-align: center; font-weight: bold; color: #2e7d32;"><?php echo intval($data['count']); ?> ✓</td>
-                                                <td style="padding: 8px;">
-                                                    <?php if (!empty($data['samples'][0]['page_title'])): ?>
-                                                        <a href="<?php echo esc_url($data['samples'][0]['page_url'] ?? '#'); ?>" target="_blank"><?php echo esc_html($data['samples'][0]['page_title']); ?></a>
-                                                    <?php else: ?>
-                                                        -
-                                                    <?php endif; ?>
-                                                </td>
-                                            </tr>
-                                        <?php endforeach; ?>
-                                    </tbody>
-                                </table>
-                            <?php else: ?>
-                                <p style="color: #2e7d32; margin: 10px 0;">⚠️ No issues were automatically fixed. This could mean:</p>
-                                <ul style="color: #555; margin: 5px 0 5px 20px; font-size: 12px;">
-                                    <li>Auto-fix settings may be disabled in Settings</li>
-                                    <li>All detected issues require manual attention</li>
-                                    <li>There may be a mismatch between detected issues and available fixes</li>
-                                </ul>
-                            <?php endif; ?>
-                        </div>
-                    </div>
-
-                    <!-- Section 2.5: Unfixable Issues (auto-fixable but fix didn't work) -->
-                    <?php if (!empty($unfixable_issues)): ?>
-                    <div style="margin: 15px 0; padding: 15px; background: #ffebee; border: 1px solid #ef9a9a; border-radius: 4px;">
-                        <h4 style="margin: 0 0 10px 0; cursor: pointer; color: #c62828;" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'; this.querySelector('.toggle-indicator').textContent = this.nextElementSibling.style.display === 'none' ? '▼' : '▲';">
-                            ❌ Auto-Fix Failed (<?php echo count($unfixable_issues); ?> issues should be auto-fixed but weren't)
-                            <span class="toggle-indicator" style="margin-left: 10px;">▼</span>
-                        </h4>
-                        <div style="display: none; max-height: 400px; overflow-y: auto;">
-                            <p style="color: #c62828; font-size: 12px; margin: 0 0 10px 0; padding: 8px; background: #fff; border-radius: 4px;">
-                                <strong>These issues are marked as auto-fixable but still appear in the scan.</strong>
-                                This could mean the DOM processor fix isn't working correctly for these elements, or the issue detection and fix detection don't match.
-                            </p>
-                            <?php
-                            // Group unfixable issues by type
-                            $unfixable_by_type = [];
-                            foreach ($unfixable_issues as $issue) {
-                                $type = $issue['type'] ?? 'unknown';
-                                if (!isset($unfixable_by_type[$type])) {
-                                    $unfixable_by_type[$type] = ['count' => 0, 'severity' => $issue['severity'] ?? 'medium', 'samples' => []];
-                                }
-                                $unfixable_by_type[$type]['count']++;
-                                if (count($unfixable_by_type[$type]['samples']) < 2) {
-                                    $unfixable_by_type[$type]['samples'][] = $issue;
-                                }
-                            }
-                            ksort($unfixable_by_type);
-                            ?>
-                            <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
-                                <thead style="background: #ffcdd2;">
-                                    <tr>
-                                        <th style="padding: 8px; text-align: left; border-bottom: 1px solid #ef9a9a;">Issue Type</th>
-                                        <th style="padding: 8px; text-align: center; border-bottom: 1px solid #ef9a9a;">Count</th>
-                                        <th style="padding: 8px; text-align: center; border-bottom: 1px solid #ef9a9a;">Severity</th>
-                                        <th style="padding: 8px; text-align: left; border-bottom: 1px solid #ef9a9a;">Sample Element</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <?php foreach ($unfixable_by_type as $type => $data): ?>
-                                        <tr style="border-bottom: 1px solid #ffcdd2;">
-                                            <td style="padding: 8px;">
-                                                <strong><?php echo esc_html($this->get_issue_description($type)); ?></strong>
-                                                <br><code style="font-size: 10px; color: #666;"><?php echo esc_html($type); ?></code>
-                                            </td>
-                                            <td style="padding: 8px; text-align: center; font-weight: bold; color: #c62828;"><?php echo intval($data['count']); ?></td>
-                                            <td style="padding: 8px; text-align: center;">
-                                                <span style="padding: 2px 8px; border-radius: 3px; font-size: 11px; background: <?php
-                                                    echo $data['severity'] === 'critical' ? '#dc3545' :
-                                                        ($data['severity'] === 'high' ? '#dc3545' :
-                                                        ($data['severity'] === 'medium' ? '#ffc107' : '#6c757d'));
-                                                ?>; color: <?php echo $data['severity'] === 'medium' ? '#000' : '#fff'; ?>;">
-                                                    <?php echo esc_html(ucfirst($data['severity'])); ?>
-                                                </span>
-                                            </td>
-                                            <td style="padding: 8px; font-family: monospace; font-size: 10px; max-width: 300px; overflow: hidden; text-overflow: ellipsis;">
-                                                <?php
-                                                if (!empty($data['samples'][0]['element'])) {
-                                                    echo esc_html(substr($data['samples'][0]['element'], 0, 80));
-                                                    if (strlen($data['samples'][0]['element']) > 80) echo '...';
-                                                } else {
-                                                    echo '-';
-                                                }
-                                                ?>
-                                            </td>
-                                        </tr>
-                                    <?php endforeach; ?>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
+                // Output debug data to console (only if there's data)
+                if (!empty($debug_data)):
+                ?>
+                <script>
+                    console.group('%c🔍 RayWP Accessibility Debug Info', 'color: #6366f1; font-weight: bold; font-size: 14px;');
+                    console.log('%cData Source:', 'font-weight: bold;', <?php echo wp_json_encode($debug_data['source'] ?? 'unknown'); ?>);
+                    console.log('%cTimestamp:', 'font-weight: bold;', <?php echo wp_json_encode($debug_data['timestamp'] ?? 'N/A'); ?>);
+                    <?php if ($has_comparison_scan): ?>
+                    console.log('%c📊 Baseline (without fixes):', 'color: #dc3545; font-weight: bold;', {
+                        score: <?php echo intval($debug_data['baseline']['score']); ?>,
+                        total_issues: <?php echo intval($debug_data['baseline']['total_issues']); ?>,
+                        pages_scanned: <?php echo intval($debug_data['baseline']['pages_scanned']); ?>,
+                        violations_by_type: <?php echo wp_json_encode($debug_data['baseline']['violations_by_type']); ?>
+                    });
+                    console.log('%c✅ With Fixes:', 'color: #28a745; font-weight: bold;', {
+                        score: <?php echo intval($debug_data['with_fixes']['score']); ?>,
+                        total_issues: <?php echo intval($debug_data['with_fixes']['total_issues']); ?>,
+                        pages_scanned: <?php echo intval($debug_data['with_fixes']['pages_scanned']); ?>,
+                        violations_by_type: <?php echo wp_json_encode($debug_data['with_fixes']['violations_by_type']); ?>
+                    });
+                    console.log('%c📈 Improvement:', 'color: #6366f1; font-weight: bold;', <?php echo wp_json_encode($debug_data['improvement']); ?>);
+                    <?php else: ?>
+                    console.log('%c📋 Legacy Scan Data:', 'color: #ffc107; font-weight: bold;', {
+                        detected: <?php echo intval($debug_data['detected_count'] ?? 0); ?>,
+                        fixed: <?php echo intval($debug_data['fixed_count'] ?? 0); ?>,
+                        remaining: <?php echo intval($debug_data['remaining_count'] ?? 0); ?>,
+                        unfixable: <?php echo intval($debug_data['unfixable_count'] ?? 0); ?>
+                    });
+                    console.log('%cFull Data:', 'font-weight: bold;', <?php echo wp_json_encode($debug_data); ?>);
                     <?php endif; ?>
-
-                    <!-- Section 3: Issues After Auto-Fix (Remaining) -->
-                    <div style="margin: 15px 0; padding: 15px; background: #fff3e0; border: 1px solid #ffb74d; border-radius: 4px;">
-                        <h4 style="margin: 0 0 10px 0; cursor: pointer; color: #e65100;" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'; this.querySelector('.toggle-indicator').textContent = this.nextElementSibling.style.display === 'none' ? '▼' : '▲';">
-                            ⚠️ Issues After Auto-Fix (<?php echo !empty($issue_breakdown['remaining']) ? count($issue_breakdown['remaining']) : 0; ?> issues require manual attention)
-                            <span class="toggle-indicator" style="margin-left: 10px;">▼</span>
-                        </h4>
-                        <div style="display: none; max-height: 400px; overflow-y: auto;">
-                            <?php if (!empty($issue_breakdown['remaining'])): ?>
-                                <?php
-                                // Group remaining issues by type
-                                $remaining_by_type = [];
-                                foreach ($issue_breakdown['remaining'] as $issue) {
-                                    $type = $issue['type'] ?? 'unknown';
-                                    if (!isset($remaining_by_type[$type])) {
-                                        $remaining_by_type[$type] = ['count' => 0, 'severity' => $issue['severity'] ?? 'medium', 'auto_fixable' => $issue['auto_fixable'] ?? false, 'samples' => []];
-                                    }
-                                    $remaining_by_type[$type]['count']++;
-                                    if (count($remaining_by_type[$type]['samples']) < 2) {
-                                        $remaining_by_type[$type]['samples'][] = $issue;
-                                    }
-                                }
-                                ksort($remaining_by_type);
-                                ?>
-                                <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
-                                    <thead style="background: #ffe0b2;">
-                                        <tr>
-                                            <th style="padding: 8px; text-align: left; border-bottom: 1px solid #ffcc80;">Issue Type</th>
-                                            <th style="padding: 8px; text-align: center; border-bottom: 1px solid #ffcc80;">Count</th>
-                                            <th style="padding: 8px; text-align: center; border-bottom: 1px solid #ffcc80;">Severity</th>
-                                            <th style="padding: 8px; text-align: center; border-bottom: 1px solid #ffcc80;">Why Not Fixed?</th>
-                                            <th style="padding: 8px; text-align: left; border-bottom: 1px solid #ffcc80;">Sample</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <?php foreach ($remaining_by_type as $type => $data): ?>
-                                            <tr style="border-bottom: 1px solid #ffe0b2;">
-                                                <td style="padding: 8px;">
-                                                    <strong><?php echo esc_html($this->get_issue_description($type)); ?></strong>
-                                                    <br><code style="font-size: 10px; color: #666;"><?php echo esc_html($type); ?></code>
-                                                </td>
-                                                <td style="padding: 8px; text-align: center; font-weight: bold;"><?php echo intval($data['count']); ?></td>
-                                                <td style="padding: 8px; text-align: center;">
-                                                    <span style="padding: 2px 8px; border-radius: 3px; font-size: 11px; background: <?php
-                                                        echo $data['severity'] === 'critical' ? '#dc3545' :
-                                                            ($data['severity'] === 'high' ? '#dc3545' :
-                                                            ($data['severity'] === 'medium' ? '#ffc107' : '#6c757d'));
-                                                    ?>; color: <?php echo $data['severity'] === 'medium' ? '#000' : '#fff'; ?>;">
-                                                        <?php echo esc_html(ucfirst($data['severity'])); ?>
-                                                    </span>
-                                                </td>
-                                                <td style="padding: 8px; text-align: center; font-size: 11px;">
-                                                    <?php if ($data['auto_fixable']): ?>
-                                                        <span style="color: #e65100;">⚠️ Marked fixable but wasn't fixed</span>
-                                                    <?php else: ?>
-                                                        <span style="color: #666;">Manual fix required</span>
-                                                    <?php endif; ?>
-                                                </td>
-                                                <td style="padding: 8px; font-size: 11px;">
-                                                    <?php if (!empty($data['samples'][0]['page_title'])): ?>
-                                                        <a href="<?php echo esc_url($data['samples'][0]['page_url'] ?? '#'); ?>" target="_blank"><?php echo esc_html($data['samples'][0]['page_title']); ?></a>
-                                                    <?php elseif (!empty($data['samples'][0]['element'])): ?>
-                                                        <code style="font-size: 10px;"><?php echo esc_html(substr($data['samples'][0]['element'], 0, 50)); ?></code>
-                                                    <?php else: ?>
-                                                        -
-                                                    <?php endif; ?>
-                                                </td>
-                                            </tr>
-                                        <?php endforeach; ?>
-                                    </tbody>
-                                </table>
-                            <?php else: ?>
-                                <p style="color: #2e7d32; margin: 10px 0;">🎉 All issues were automatically fixed! No manual attention required.</p>
-                            <?php endif; ?>
-                        </div>
-                    </div>
-
-                    <!-- Summary -->
-                    <div style="margin-top: 15px; padding: 10px; background: #e3f2fd; border-radius: 4px; font-size: 12px;">
-                        <strong>Summary:</strong>
-                        <?php
-                        $total_original = count($all_original_issues);
-                        $total_fixed = !empty($issue_breakdown['fixed']) ? count($issue_breakdown['fixed']) : 0;
-                        $total_remaining = !empty($issue_breakdown['remaining']) ? count($issue_breakdown['remaining']) : 0;
-                        $total_unfixable = count($unfixable_issues);
-                        ?>
-                        <?php echo intval($total_original); ?> issues detected →
-                        <?php echo intval($total_fixed); ?> auto-fixed →
-                        <?php echo intval($total_remaining); ?> require manual fix
-                        <?php if ($total_unfixable > 0): ?>
-                            → <?php echo intval($total_unfixable); ?> auto-fix failed
-                        <?php endif; ?>
-                        <?php if ($total_original > 0 && $total_fixed > 0): ?>
-                            <span style="color: #2e7d32; margin-left: 10px;">(<?php echo round(($total_fixed / $total_original) * 100); ?>% automatically resolved)</span>
-                        <?php endif; ?>
-                        <?php if ($total_original > 0 && $total_unfixable > 0): ?>
-                            <br><small style="color: #e65100;">Note: <?php echo intval($total_unfixable); ?> issues are marked as auto-fixable but the fix did not resolve them on the live site.</small>
-                        <?php endif; ?>
-                    </div>
-                </div>
+                    console.groupEnd();
+                </script>
                 <?php endif; ?>
 
                 <div class="raywp-report-section">
