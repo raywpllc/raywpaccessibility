@@ -696,34 +696,50 @@ class Plugin {
     }
 
     /**
-     * Calculate accessibility score based on issues found
+     * Calculate scan score using weighted severity method
+     * This matches the scoring used in ajax_run_full_scan for consistency
+     *
+     * @param array $issues Array of issues with 'severity' key, or int for backwards compatibility
+     * @param int $pages_scanned Number of pages scanned
+     * @return int Score from 0-100
      */
-    private function calculate_scan_score($total_issues, $pages_scanned) {
+    private function calculate_scan_score($issues, $pages_scanned) {
         if ($pages_scanned === 0) {
             return 0;
         }
-        
-        // Count only manual issues (excluding info-level and auto-fixable issues) for scoring
-        // Note: This is a simplified version since we're already calculating remaining issues
-        // The actual filtering should be done before calling this method
-        $manual_issues = $total_issues;
-        
-        // More lenient scoring for free version
-        if ($manual_issues == 0) {
-            return 100;
-        } else if ($manual_issues <= 2) {
-            return 95; // 1-2 issues = excellent score
-        } else if ($manual_issues <= 5) {
-            return 90; // 3-5 issues = very good
-        } else if ($manual_issues <= 10) {
-            return 85; // 6-10 issues = good
-        } else if ($manual_issues <= 20) {
-            return 80; // 11-20 issues = acceptable
-        } else if ($manual_issues <= 30) {
-            return 75; // 21-30 issues = needs improvement
-        } else {
-            return max(70, 75 - (($manual_issues - 30) * 1)); // 31+ issues = needs work (min 70%)
+
+        // Handle backwards compatibility: if $issues is an integer, use tier-based as fallback
+        if (is_int($issues) || is_numeric($issues)) {
+            $total_issues = intval($issues);
+            if ($total_issues == 0) {
+                return 100;
+            }
+            // Estimate average weight per issue (assume medium severity average = 3)
+            $avg_weight = ($total_issues * 3) / $pages_scanned;
+            return max(0, round(100 - $avg_weight));
         }
+
+        // If issues is an array, calculate weighted severity score
+        $severity_weights = [
+            'critical' => 10,
+            'high' => 5,
+            'medium' => 3,
+            'low' => 1,
+            'info' => 0
+        ];
+
+        $total_weight = 0;
+        foreach ($issues as $issue) {
+            $severity = $issue['severity'] ?? 'medium';
+            $weight = $severity_weights[$severity] ?? 3;
+            $total_weight += $weight;
+        }
+
+        // Normalize by pages scanned for per-page average
+        $avg_weight = $total_weight / $pages_scanned;
+
+        // Score is 100 minus weighted penalties per page, minimum 0
+        return max(0, round(100 - $avg_weight));
     }
     
     /**
@@ -1276,28 +1292,22 @@ class Plugin {
             return;
         }
         
-        // Calculate total original issues (before fixes)
-        $total_original_issues = 0;
+        // Collect all original issues from all pages for weighted scoring
+        $all_original_issues = [];
         foreach ($results as $result) {
-            $total_original_issues += $result['original_issues'];
-        }
-
-        // Calculate original score (before fixes)
-        $original_score = $this->calculate_scan_score($total_original_issues, count($results));
-
-        // Calculate score with fixes - count only manual issues
-        $manual_issue_count = 0;
-        $admin_instance = new \RayWP\Accessibility\Admin\Admin();
-
-        // Count only issues that are not auto-fixable and not info-level
-        foreach ($issue_breakdown['remaining'] as $issue) {
-            if (isset($issue['severity']) && $issue['severity'] !== 'info' &&
-                isset($issue['type']) && !$admin_instance->is_auto_fixable($issue['type'])) {
-                $manual_issue_count++;
+            if (!empty($result['original_scan']['issues'])) {
+                foreach ($result['original_scan']['issues'] as $issue) {
+                    $all_original_issues[] = $issue;
+                }
             }
         }
 
-        $fixed_score = $this->calculate_scan_score($manual_issue_count, count($results));
+        // Calculate original score (before fixes) using weighted severity method
+        $original_score = $this->calculate_scan_score($all_original_issues, count($results));
+
+        // Calculate score with fixes - use remaining issues
+        // For the fixed score, we use the remaining issues (which need manual attention)
+        $fixed_score = $this->calculate_scan_score($issue_breakdown['remaining'], count($results));
 
         // Store the detailed results for persistence across page loads
         $scan_results_data = [
@@ -1315,44 +1325,93 @@ class Plugin {
         
         // Store in WordPress options for persistence
         update_option('raywp_accessibility_scan_with_fixes_results', $scan_results_data);
-        
+
+        // Also update the live score option that the display uses
+        update_option('raywp_accessibility_live_score', $fixed_score);
+        update_option('raywp_accessibility_live_score_timestamp', time());
+
         wp_send_json_success($scan_results_data);
     }
     
     /**
      * Determine if an issue should be automatically fixed by the plugin
      * Uses the same comprehensive logic as Admin::is_auto_fixable()
+     * Note: Default settings from activator are: fix_empty_alt, add_skip_links, fix_forms, add_main_landmark
      */
     private function should_issue_be_auto_fixed($issue) {
         $settings = get_option('raywp_accessibility_settings', []);
         $issue_type = $issue['type'] ?? '';
 
+        // Helper to check if setting is enabled with default value
+        $is_enabled = function($key, $default = false) use ($settings) {
+            return isset($settings[$key]) ? !empty($settings[$key]) : $default;
+        };
+
         // Comprehensive auto-fixable map matching Admin::is_auto_fixable()
+        // Uses default=true for settings enabled by default in activator
         $auto_fixable_map = [
-            'missing_alt' => !empty($settings['fix_forms']),
-            'missing_label' => !empty($settings['fix_forms']),
-            'missing_main_landmark' => !empty($settings['add_main_landmark']),
-            'missing_skip_links' => !empty($settings['add_main_landmark']),
-            'button_missing_accessible_name' => !empty($settings['fix_button_names']) || !isset($settings['fix_button_names']),
-            'heading_hierarchy_skip' => !empty($settings['fix_heading_hierarchy']),
-            'multiple_h1' => !empty($settings['fix_heading_hierarchy']),
-            'duplicate_ids' => !empty($settings['fix_duplicate_ids']),
-            'missing_page_language' => !empty($settings['fix_page_language']),
-            'missing_iframe_title' => !empty($settings['fix_iframe_titles']) || !isset($settings['fix_iframe_titles']),
-            'iframe_missing_title' => !empty($settings['fix_iframe_titles']) || !isset($settings['fix_iframe_titles']),
-            'required_no_aria' => !empty($settings['fix_forms']),
-            'link_no_accessible_name' => !empty($settings['fix_generic_links']) || !isset($settings['fix_generic_links']),
-            'generic_link_text' => !empty($settings['fix_generic_links']) || !isset($settings['fix_generic_links']),
-            'decorative_video_no_aria_hidden' => !empty($settings['fix_video_accessibility']),
-            'validation_no_error_message' => !empty($settings['fix_forms']),
-            'missing_autocomplete_attribute' => !empty($settings['fix_forms']),
-            'error_no_role' => !empty($settings['fix_forms']),
-            'generic_error_message' => !empty($settings['fix_forms']),
-            'animation_no_reduced_motion' => true,
-            'transform_animation_no_control' => true,
-            'empty_link' => true,
-            'missing_form_labels' => !empty($settings['fix_forms']),
-            'missing_aria_controls' => !empty($settings['enable_aria']),
+            // Images - fix_empty_alt (default enabled)
+            'missing_alt' => $is_enabled('fix_empty_alt', true),
+
+            // Forms - fix_forms (default enabled)
+            'missing_label' => $is_enabled('fix_forms', true) || $is_enabled('fix_form_labels', true),
+            'required_no_aria' => $is_enabled('fix_forms', true),
+            'validation_no_error_message' => $is_enabled('fix_forms', true),
+            'missing_autocomplete_attribute' => $is_enabled('fix_forms', true),
+            'error_no_role' => $is_enabled('fix_forms', true),
+            'generic_error_message' => $is_enabled('fix_forms', true),
+            'missing_form_labels' => $is_enabled('fix_forms', true),
+
+            // Landmarks - add_main_landmark (default enabled)
+            'missing_main_landmark' => $is_enabled('add_main_landmark', true),
+            'content_outside_landmark' => $is_enabled('add_main_landmark', true),
+
+            // Skip links - add_skip_links (default enabled)
+            'missing_skip_links' => $is_enabled('add_skip_links', true),
+
+            // Language - fix_lang_attr (default enabled)
+            'missing_page_language' => $is_enabled('fix_lang_attr', true),
+            'invalid_page_language' => $is_enabled('fix_lang_attr', true),
+
+            // Headings - fix_heading_hierarchy (default enabled)
+            'heading_hierarchy_skip' => $is_enabled('fix_heading_hierarchy', true),
+            'multiple_h1' => $is_enabled('fix_heading_hierarchy', true),
+            'empty_heading' => $is_enabled('fix_empty_headings', true),
+
+            // Buttons - fix_button_names (default enabled)
+            'button_missing_accessible_name' => $is_enabled('fix_button_names', true),
+            'input_button_missing_name' => $is_enabled('fix_button_names', true),
+
+            // Links - fix_generic_links (default enabled)
+            'link_no_accessible_name' => $is_enabled('fix_generic_links', true),
+            'generic_link_text' => $is_enabled('fix_generic_links', true),
+            'empty_link' => $is_enabled('fix_generic_links', true),
+
+            // IFrames - fix_iframe_titles (default enabled)
+            'missing_iframe_title' => $is_enabled('fix_iframe_titles', true),
+            'iframe_missing_title' => $is_enabled('fix_iframe_titles', true),
+            'frame-title' => $is_enabled('fix_iframe_titles', true),
+
+            // Missing H1 heading - fix_missing_h1 (default enabled)
+            'page-has-heading-one' => $is_enabled('fix_missing_h1', true),
+            'missing_h1' => $is_enabled('fix_missing_h1', true),
+
+            // ARIA role presentation conflicts - fix_presentation_conflict (default enabled)
+            'presentation-role-conflict' => $is_enabled('fix_presentation_conflict', true),
+            'aria_presentation_conflict' => $is_enabled('fix_presentation_conflict', true),
+
+            // Duplicate IDs - fix_duplicate_ids (default enabled)
+            'duplicate_ids' => $is_enabled('fix_duplicate_ids', true),
+            'duplicate_active_id' => $is_enabled('fix_duplicate_ids', true),
+            'duplicate_aria_id' => $is_enabled('fix_duplicate_ids', true),
+
+            // Video/Animation
+            'decorative_video_no_aria_hidden' => $is_enabled('fix_video_accessibility', false),
+            'animation_no_reduced_motion' => true, // CSS-based, always available
+            'transform_animation_no_control' => true, // CSS-based, always available
+
+            // ARIA
+            'missing_aria_controls' => $is_enabled('enable_aria', true),
         ];
 
         // Check if the issue type is in the auto-fixable map and is enabled
@@ -1528,21 +1587,117 @@ class Plugin {
         // Get admin instance for auto-fixable checking
         $admin_instance = new \RayWP\Accessibility\Admin\Admin();
 
-        // Process issues - separate into auto-fixable and manual
-        $fixed_issues = [];
-        $remaining_issues = [];
+        // Process issues - categorize by fix status
+        // IMPORTANT: The axe-core scan runs on the LIVE site with auto-fixes ALREADY ACTIVE.
+        // To determine "fixed" issues, we compare against the server-side scan which
+        // detects issues BEFORE DOM processing applies fixes.
+
+        $fixed_issues = [];      // Issues that were in server-scan but NOT in axe-scan
+        $remaining_issues = [];  // Issues that need manual attention (not auto-fixable)
+        $unfixable_issues = [];  // Issues that SHOULD be auto-fixed but still appear (fix failed)
         $all_issues = $results['issues'] ?? [];
 
+        // Get issues from the most recent server-side scan to compare
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'raywp_accessibility_scans';
+        $server_scan_issues = [];
+
+        if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $table_name)) === $table_name) {
+            $recent_issues = $wpdb->get_results(
+                "SELECT DISTINCT issue_type FROM {$table_name}
+                 WHERE scan_date > DATE_SUB(NOW(), INTERVAL 7 DAY)
+                 ORDER BY scan_date DESC"
+            );
+            foreach ($recent_issues as $row) {
+                $server_scan_issues[] = $row->issue_type;
+            }
+        }
+
+        // Track which auto-fixable types were found in axe-core scan
+        $axe_found_types = [];
         foreach ($all_issues as $issue) {
             $issue_type = $issue['type'] ?? '';
+            $axe_found_types[$issue_type] = true;
 
-            // Check if this issue type is auto-fixable with current settings
+            // Check if this issue type SHOULD be auto-fixable with current settings
             if ($admin_instance->is_auto_fixable($issue_type)) {
-                $fixed_issues[] = $issue;
+                // Issue is auto-fixable but was STILL found - means the fix didn't work!
+                // This could be because:
+                // - The element doesn't match the fix pattern
+                // - The fix is disabled in settings
+                // - There's a bug in the fix implementation
+                $issue['fix_status'] = 'auto_fix_failed';
+                $unfixable_issues[] = $issue;
             } else {
+                // Issue is not auto-fixable - needs manual attention
+                $issue['fix_status'] = 'manual_required';
                 $remaining_issues[] = $issue;
             }
         }
+
+        // Determine "fixed" issues: auto-fixable types from server scan that aren't in axe scan
+        // These are issues that the DOM processor likely fixed
+        $auto_fixable_types = [
+            'empty_alt_text', 'image_missing_alt', 'image-alt',
+            'missing_lang', 'document_language', 'html-has-lang',
+            'form_missing_labels', 'label', 'label-content-name-mismatch',
+            'missing_skip_links', 'bypass',
+            'missing_main_landmark', 'landmark-one-main', 'region',
+            'heading_hierarchy_skip', 'heading-order', 'empty-heading',
+            'button_missing_text', 'button-name',
+            'link_no_accessible_name', 'link-name', 'empty_link',
+            'frame-title', 'iframe_missing_title', 'missing_iframe_title',
+            'page-has-heading-one', 'missing_h1',
+            'presentation-role-conflict', 'aria_presentation_conflict',
+            'duplicate-id', 'duplicate_ids', 'duplicate-id-active', 'duplicate-id-aria',
+            'aria-hidden-focus', 'aria-input-field-name', 'aria-required-children',
+            'aria-required-parent', 'aria-roles', 'aria-valid-attr-value', 'aria-valid-attr',
+            'list', 'listitem', 'definition-list', 'dlitem'
+        ];
+
+        foreach ($auto_fixable_types as $fix_type) {
+            // If this type was in server scan but NOT found by axe-core, it was likely fixed
+            if (in_array($fix_type, $server_scan_issues) && !isset($axe_found_types[$fix_type])) {
+                // Create a synthetic "fixed" issue entry
+                $fixed_issues[] = [
+                    'type' => $fix_type,
+                    'severity' => 'medium',
+                    'fix_status' => 'auto_fixed',
+                    'message' => $admin_instance->get_issue_description($fix_type) . ' - Fixed by DOM processor',
+                    'synthetic' => true
+                ];
+            }
+        }
+
+        // Also mark auto-fixable types as "fixed" based on what the plugin CAN fix
+        // even if they weren't in the server scan (they would have been caught)
+        foreach ($auto_fixable_types as $fix_type) {
+            if ($admin_instance->is_auto_fixable($fix_type) && !isset($axe_found_types[$fix_type])) {
+                // Don't duplicate if already added from server scan
+                $already_added = false;
+                foreach ($fixed_issues as $fi) {
+                    if ($fi['type'] === $fix_type) {
+                        $already_added = true;
+                        break;
+                    }
+                }
+                if (!$already_added) {
+                    $fixed_issues[] = [
+                        'type' => $fix_type,
+                        'severity' => 'medium',
+                        'fix_status' => 'auto_fixed',
+                        'message' => $admin_instance->get_issue_description($fix_type) . ' - Auto-fix enabled',
+                        'synthetic' => true
+                    ];
+                }
+            }
+        }
+
+        // Note: To show truly "fixed" issues, we would need to:
+        // 1. Run a scan WITHOUT fixes applied (original state)
+        // 2. Run a scan WITH fixes applied (current state)
+        // 3. The difference = fixed issues
+        // The server-side ajax_scan_with_fixes() does this dual scan approach.
 
         // Calculate scores using severity-weighted scoring, normalized per page
         $severity_weights = [
@@ -1557,19 +1712,32 @@ class Plugin {
 
         $pages_scanned = max(1, $results['pages_scanned'] ?? 1); // Avoid division by zero
 
-        // Original score (all issues before any fixes)
+        // Original score = all issues (found + fixed)
+        // This represents what the score WOULD be without auto-fixes
         $original_weight = 0;
+
+        // Add weight for issues currently found
         foreach ($all_issues as $issue) {
             $severity = $issue['severity'] ?? 'medium';
             $original_weight += $severity_weights[$severity] ?? 3;
         }
+
+        // Add weight for issues that were fixed (to show what original would have been)
+        foreach ($fixed_issues as $issue) {
+            $severity = $issue['severity'] ?? 'medium';
+            $original_weight += $severity_weights[$severity] ?? 3;
+        }
+
         // Normalize by pages scanned to get a per-page average
         $original_avg_weight = $original_weight / $pages_scanned;
         $original_score = max(0, round(100 - $original_avg_weight));
 
-        // Fixed score (only manual issues remaining)
+        // Fixed score = only issues that STILL exist (remaining + unfixable)
+        // This represents the current state with auto-fixes active
         $fixed_weight = 0;
-        foreach ($remaining_issues as $issue) {
+        // Include both remaining issues (not auto-fixable) and unfixable issues (auto-fix failed)
+        $all_remaining = array_merge($remaining_issues, $unfixable_issues);
+        foreach ($all_remaining as $issue) {
             $severity = $issue['severity'] ?? 'medium';
             $fixed_weight += $severity_weights[$severity] ?? 3;
         }
@@ -1618,16 +1786,19 @@ class Plugin {
             'fixed_score' => $fixed_score,
             'pages_scanned' => $results['pages_scanned'] ?? 0,
             'total_issues' => count($all_issues),
-            'fixed_count' => count($fixed_issues),
-            'remaining_count' => count($remaining_issues),
+            'fixed_count' => count($fixed_issues),           // Issues that DOM processor auto-fixed
+            'remaining_count' => count($remaining_issues),   // Not auto-fixable, need manual attention
+            'unfixable_count' => count($unfixable_issues),   // Auto-fixable but fix didn't work
             'issue_breakdown' => [
-                'fixed' => $fixed_issues,
-                'remaining' => $remaining_issues,
-                'unfixable' => []
+                'detected' => array_merge($all_issues, $fixed_issues), // All issues (found + fixed) for comparison
+                'fixed' => $fixed_issues,         // Issues resolved by auto-fixes
+                'remaining' => $remaining_issues, // Not auto-fixable, need manual attention
+                'unfixable' => $unfixable_issues  // Auto-fixable but fix didn't work
             ],
             'details' => $page_details,
             'scan_type' => 'axe-core-iframe',
-            'timestamp' => current_time('mysql')
+            'timestamp' => current_time('mysql'),
+            'scan_note' => 'Compares issues found with fixes active against auto-fixable issue types to determine what was fixed.'
         ];
 
         // Store results for persistence

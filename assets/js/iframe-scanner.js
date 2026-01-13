@@ -201,18 +201,60 @@
                     runOnly: this.options.axeConfig.runOnly,
                     resultTypes: this.options.axeConfig.resultTypes,
                     // Exclude admin bar and other WordPress admin elements
+                    // Using comprehensive selectors to catch all admin bar descendants
                     exclude: [
                         ['#wpadminbar'],
+                        ['#wpadminbar *'],           // All descendants of admin bar
                         ['.wp-admin-bar'],
                         ['#adminmenuwrap'],
                         ['#adminmenu'],
-                        ['#wpfooter']
+                        ['#wpfooter'],
+                        ['[id^="wp-admin-bar-"]'],   // All elements with wp-admin-bar-* IDs
+                        ['.ab-item'],                // Admin bar items
+                        ['.ab-empty-item'],          // Empty admin bar items
+                        ['.ab-top-menu'],            // Admin bar top menu
+                        ['.ab-sub-wrapper'],         // Admin bar submenus
+                        ['#admin-bar-root-default'], // Admin bar root
+                        ['.screen-reader-shortcut']  // WP screen reader shortcuts (not issues)
                     ]
                 };
 
                 // Run axe
                 iframeWindow.axe.run(iframeWindow.document, axeOptions)
                     .then(results => {
+                        // Filter out admin bar violations since axe-core exclude doesn't work reliably
+                        // Check both the element HTML and target selector for admin bar references
+                        const isAdminBarNode = (node) => {
+                            const html = node.html || '';
+                            const target = Array.isArray(node.target) ? node.target.join(' ') : (node.target || '');
+
+                            // Direct admin bar elements
+                            if (html.includes('wp-admin-bar') ||
+                                html.includes('wpadminbar') ||
+                                html.includes('ab-item') ||
+                                html.includes('ab-top-menu') ||
+                                target.includes('#wpadminbar') ||
+                                target.includes('[id^="wp-admin-bar"]')) {
+                                return true;
+                            }
+
+                            // WordPress admin bar skip links (screen-reader-shortcut class with admin targets)
+                            // These are WordPress core elements we can't modify
+                            if (html.includes('screen-reader-shortcut') &&
+                                (html.includes('#wp-toolbar') || html.includes('#wpbody-content'))) {
+                                return true;
+                            }
+
+                            return false;
+                        };
+
+                        // Filter violations
+                        results.violations = results.violations.map(violation => {
+                            // Filter out admin bar nodes from each violation
+                            violation.nodes = violation.nodes.filter(node => !isAdminBarNode(node));
+                            return violation;
+                        }).filter(violation => violation.nodes.length > 0); // Remove violations with no nodes left
+
                         resolve(results);
                     })
                     .catch(error => {

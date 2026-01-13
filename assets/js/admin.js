@@ -254,7 +254,7 @@ jQuery(document).ready(function($) {
                 // Update the reports page with results
                 updateScanResults(data);
                 
-                let message = `Scan Complete!\nPages Scanned: ${data.pages_scanned}\nTotal Issues: ${data.total_issues}\nAccessibility Score: ${data.accessibility_score}%`;
+                let message = `Scan Complete!\nPages Scanned: ${data.pages_scanned}\nTotal Issues: ${data.total_issues}`;
                 
                 if (data.errors && data.errors.length > 0) {
                     message += '\n\nErrors:\n' + data.errors.join('\n');
@@ -427,13 +427,28 @@ jQuery(document).ready(function($) {
         const details = document.getElementById(issueId);
         const header = details.previousElementSibling;
         const arrow = header.querySelector('.toggle-arrow');
-        
+
         if (details.style.display === 'none') {
             details.style.display = 'block';
             arrow.textContent = '▲';
         } else {
             details.style.display = 'none';
             arrow.textContent = '▼';
+        }
+    }
+
+    // Global function to toggle accordion sections
+    window.toggleAccordion = function(contentId) {
+        const content = document.getElementById(contentId);
+        const header = content.previousElementSibling;
+        const arrow = header.querySelector('.accordion-arrow');
+
+        if (content.style.display === 'none') {
+            content.style.display = 'block';
+            if (arrow) arrow.textContent = '▲';
+        } else {
+            content.style.display = 'none';
+            if (arrow) arrow.textContent = '▼';
         }
     }
     

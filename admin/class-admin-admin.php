@@ -1199,7 +1199,72 @@ class Admin {
                         Links: <?php echo $fixes_status['fix_generic_links'] ? '✓' : '✗'; ?>
                     </div>
                 </div>
-                
+
+                <!-- Active Auto-Fixes Applied Section -->
+                <?php
+                $settings = get_option('raywp_accessibility_settings', []);
+                $active_fixes = [];
+
+                // Check each auto-fix and add to list if enabled
+                $fix_descriptions = [
+                    'fix_empty_alt' => ['name' => 'Empty Alt Text', 'desc' => 'Adds alt="" to images without alt attributes (marking them as decorative)', 'default' => true],
+                    'fix_lang_attr' => ['name' => 'Page Language', 'desc' => 'Adds lang attribute to HTML element using WordPress locale', 'default' => true],
+                    'fix_form_labels' => ['name' => 'Form Labels', 'desc' => 'Adds aria-label to form inputs/selects/textareas without labels', 'default' => true],
+                    'fix_forms' => ['name' => 'Form Accessibility', 'desc' => 'Adds fieldsets to radio/checkbox groups, aria-required, form instructions', 'default' => true],
+                    'add_skip_links' => ['name' => 'Skip Links', 'desc' => 'Adds "Skip to main content" and "Skip to navigation" links', 'default' => true],
+                    'add_main_landmark' => ['name' => 'Main Landmark', 'desc' => 'Adds role="main" to content area or creates main element', 'default' => true],
+                    'fix_heading_hierarchy' => ['name' => 'Heading Hierarchy', 'desc' => 'Fixes skipped heading levels using aria-level, handles multiple H1s', 'default' => true],
+                    'fix_empty_headings' => ['name' => 'Empty Headings', 'desc' => 'Removes or fixes empty heading elements from plugins', 'default' => true],
+                    'fix_button_names' => ['name' => 'Button Names', 'desc' => 'Adds accessible names to buttons without visible text', 'default' => true],
+                    'fix_generic_links' => ['name' => 'Link Names', 'desc' => 'Adds aria-labels to links without accessible text', 'default' => true],
+                    'fix_iframe_titles' => ['name' => 'iFrame Titles', 'desc' => 'Adds descriptive title attributes to iframes (YouTube, Vimeo, maps, etc.)', 'default' => true],
+                    'fix_missing_h1' => ['name' => 'Missing H1', 'desc' => 'Adds visually hidden H1 or promotes existing heading if page lacks H1', 'default' => true],
+                    'fix_presentation_conflict' => ['name' => 'ARIA Presentation Conflicts', 'desc' => 'Removes role="presentation" from interactive elements', 'default' => true],
+                    'fix_duplicate_ids' => ['name' => 'Duplicate IDs', 'desc' => 'Makes duplicate ID attributes unique', 'default' => true],
+                    'fix_aria_controls' => ['name' => 'ARIA Controls', 'desc' => 'Adds aria-controls to buttons with aria-expanded', 'default' => true],
+                    'fix_lighthouse_issues' => ['name' => 'Lighthouse Fixes', 'desc' => 'Fixes invalid ARIA roles, duplicate ARIA IDs, unnamed links, skip link focus, list structure', 'default' => true],
+                    'enable_aria' => ['name' => 'Custom ARIA Rules', 'desc' => 'Applies custom ARIA attributes from the ARIA Manager', 'default' => true],
+                ];
+
+                $enabled_count = 0;
+                foreach ($fix_descriptions as $key => $info) {
+                    $is_enabled = isset($settings[$key]) ? !empty($settings[$key]) : $info['default'];
+                    if ($is_enabled) {
+                        $active_fixes[$key] = $info;
+                        $enabled_count++;
+                    }
+                }
+                ?>
+                <div class="raywp-report-section" style="background: #e8f5e9; border: 1px solid #81c784; padding: 20px; border-radius: 8px; margin-bottom: 25px;">
+                    <h3 style="margin: 0 0 15px 0; color: #2e7d32; display: flex; align-items: center; gap: 10px;">
+                        <span style="font-size: 24px;">⚡</span>
+                        Auto-Fixes Applied on Every Page (<?php echo $enabled_count; ?> active)
+                    </h3>
+                    <p style="margin: 0 0 15px 0; color: #555; font-size: 13px;">
+                        These fixes are automatically applied to every frontend page your visitors see. No scan needed - they work in real-time!
+                    </p>
+                    <?php if (!empty($active_fixes)): ?>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px;">
+                            <?php foreach ($active_fixes as $key => $info): ?>
+                                <div style="background: #fff; padding: 12px 15px; border-radius: 6px; border-left: 3px solid #28a745;">
+                                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 5px;">
+                                        <span style="color: #28a745; font-size: 16px;">✓</span>
+                                        <strong style="color: #1d2327; font-size: 13px;"><?php echo esc_html($info['name']); ?></strong>
+                                    </div>
+                                    <p style="margin: 0; color: #666; font-size: 12px; line-height: 1.4;"><?php echo esc_html($info['desc']); ?></p>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                        <div style="margin-top: 15px; padding: 10px 15px; background: rgba(255,255,255,0.7); border-radius: 4px; font-size: 12px; color: #555;">
+                            <strong>Note:</strong> These fixes are applied via DOM processing. Run "Check Score With Fixes" to verify they're working on your site's specific structure.
+                        </div>
+                    <?php else: ?>
+                        <div style="background: #fff3cd; padding: 15px; border-radius: 6px; color: #856404;">
+                            <strong>No auto-fixes enabled!</strong> Click "Enable All Auto-Fixes" above to activate automatic accessibility improvements.
+                        </div>
+                    <?php endif; ?>
+                </div>
+
                 <div class="raywp-report-section">
                     <h2><?php esc_html_e('Accessibility Status', 'raywp-accessibility'); ?></h2>
                     
@@ -1215,7 +1280,7 @@ class Admin {
                         <div style="display: flex; align-items: center; gap: 20px; margin: 20px 0; padding: 25px; background: #f8f9fa; border-radius: 8px; border: 1px solid #e9ecef;">
                             <!-- Original Score -->
                             <div style="text-align: center; padding: 20px; background: #fff; border-radius: 8px; border: 1px solid #dee2e6; min-width: 140px;">
-                                <div style="font-size: 13px; color: #6c757d; margin-bottom: 8px; font-weight: 500;">Original Theme Score</div>
+                                <div style="font-size: 13px; color: #6c757d; margin-bottom: 8px; font-weight: 500;">Server-Side Scan Score</div>
                                 <div style="font-size: 42px; font-weight: bold; color: <?php echo $original_score !== null && $original_score >= 90 ? '#28a745' : ($original_score !== null && $original_score >= 70 ? '#ffc107' : '#dc3545'); ?>;">
                                     <?php echo $original_score !== null ? esc_html($original_score) : '--'; ?>%
                                 </div>
@@ -1252,7 +1317,7 @@ class Admin {
                                 }
                             ?>
                             <div style="text-align: center; padding: 20px; background: <?php echo $bg_color; ?>; border-radius: 8px; border: 1px solid <?php echo $border_color; ?>; min-width: 140px;">
-                                <div style="font-size: 13px; color: <?php echo $score_color; ?>; margin-bottom: 8px; font-weight: 500;">Live Score with Plugin</div>
+                                <div style="font-size: 13px; color: <?php echo $score_color; ?>; margin-bottom: 8px; font-weight: 500;">Browser Scan Score</div>
                                 <div style="font-size: 42px; font-weight: bold; color: <?php echo $score_color; ?>;">
                                     <?php echo $score; ?>%
                                 </div>
@@ -1267,12 +1332,12 @@ class Admin {
                             </div>
                             <?php } else { ?>
                             <div style="text-align: center; padding: 20px; background: #f8f9fa; border-radius: 8px; border: 1px solid #dee2e6; min-width: 140px;">
-                                <div style="font-size: 13px; color: #6c757d; margin-bottom: 8px; font-weight: 500;">Live Score with Plugin</div>
+                                <div style="font-size: 13px; color: #6c757d; margin-bottom: 8px; font-weight: 500;">Browser Scan Score</div>
                                 <div style="font-size: 42px; font-weight: bold; color: #6c757d;">
                                     --
                                 </div>
                                 <div style="font-size: 12px; color: #6c757d; margin-top: 5px; font-style: italic;">
-                                    Click "Check Score with Fixes" to calculate
+                                    Click "Check Score with Fixes" to scan with axe-core
                                 </div>
                             </div>
                             <?php } ?>
@@ -1284,7 +1349,19 @@ class Admin {
                                 </button>
                             </div>
                         </div>
-                        
+
+                        <!-- Score Explanation -->
+                        <div style="margin: 0 0 20px 0; padding: 12px 15px; background: #e8f4f8; border-left: 4px solid #0288d1; border-radius: 0 4px 4px 0; font-size: 12px; color: #555;">
+                            <strong>Understanding the Scores:</strong>
+                            <ul style="margin: 8px 0 0 20px; padding: 0;">
+                                <li><strong>Server-Side Scan Score:</strong> From "Run Full Scan" - PHP-based scan of HTML structure using WordPress hooks.</li>
+                                <li><strong>Browser Scan Score:</strong> From "Check Score with Fixes" - JavaScript-based scan using axe-core, tests live rendered page WITH plugin fixes active.</li>
+                            </ul>
+                            <p style="margin: 8px 0 0 0; color: #666;">
+                                <em>Note: Both scans test the site WITH auto-fixes enabled. To see the impact of fixes, disable auto-fix settings temporarily and run "Run Full Scan" first, then re-enable and run "Check Score with Fixes".</em>
+                            </p>
+                        </div>
+
                         <!-- Status Section -->
                         <div style="margin: 20px 0;">
                             <h3 style="color: #1d2327; margin-bottom: 15px; font-size: 18px;">Requires Manual Attention</h3>
@@ -1305,6 +1382,29 @@ class Admin {
                                 <div style="margin-bottom: 20px;">
                                     <div style="background: #fff; border: 1px solid #dee2e6; border-radius: 8px; overflow: hidden;">
                                         <div style="padding: 15px;">
+                                            <?php
+                                            // Group remaining issues by type for display
+                                            $remaining_by_type = [];
+                                            $contrast_issues_all = []; // Store all contrast issues for accordion
+                                            foreach ($dual_scan_results['issue_breakdown']['remaining'] as $issue) {
+                                                $type = $issue['type'] ?? 'unknown';
+                                                $severity = $issue['severity'] ?? 'medium';
+                                                if (!isset($remaining_by_type[$type])) {
+                                                    $remaining_by_type[$type] = [
+                                                        'count' => 0,
+                                                        'severity' => $severity,
+                                                        'sample' => $issue,
+                                                        'all_instances' => []
+                                                    ];
+                                                }
+                                                $remaining_by_type[$type]['count']++;
+                                                // Store all instances for contrast issues
+                                                if ($type === 'low_contrast' || $type === 'color-contrast') {
+                                                    $contrast_issues_all[] = $issue;
+                                                    $remaining_by_type[$type]['all_instances'][] = $issue;
+                                                }
+                                            }
+                                            ?>
                                             <table style="width: 100%; border-collapse: collapse;">
                                                 <thead>
                                                     <tr style="border-bottom: 1px solid #dee2e6;">
@@ -1315,20 +1415,6 @@ class Admin {
                                                 </thead>
                                                 <tbody>
                                                     <?php
-                                                    // Group remaining issues by type for display
-                                                    $remaining_by_type = [];
-                                                    foreach ($dual_scan_results['issue_breakdown']['remaining'] as $issue) {
-                                                        $type = $issue['type'] ?? 'unknown';
-                                                        $severity = $issue['severity'] ?? 'medium';
-                                                        if (!isset($remaining_by_type[$type])) {
-                                                            $remaining_by_type[$type] = [
-                                                                'count' => 0,
-                                                                'severity' => $severity,
-                                                                'sample' => $issue
-                                                            ];
-                                                        }
-                                                        $remaining_by_type[$type]['count']++;
-                                                    }
 
                                                     foreach ($remaining_by_type as $type => $data):
                                                         $severity = $data['severity'];
@@ -1354,23 +1440,106 @@ class Admin {
                                                         ];
                                                         $bg_color = $severity_bg_colors[$severity] ?? '#6c757d';
                                                         $text_color = $severity_text_colors[$severity] ?? 'white';
+                                                        $is_contrast_issue = ($type === 'low_contrast' || $type === 'color-contrast');
                                                     ?>
                                                         <tr style="border-bottom: 1px solid #f8f9fa;">
-                                                            <td style="padding: 12px 0;">
+                                                            <td style="padding: 12px 0; vertical-align: top;">
                                                                 <span style="background: <?php echo esc_attr($bg_color); ?>; color: <?php echo esc_attr($text_color); ?>; padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 500;">
                                                                     <?php echo esc_html(ucfirst($severity)); ?>
                                                                 </span>
                                                             </td>
                                                             <td style="padding: 12px 0; color: #1d2327;">
                                                                 <?php echo esc_html($this->get_issue_description($type)); ?>
-                                                                <?php if (!empty($data['sample']['page_title']) || !empty($data['sample']['html_snippet'])): ?>
+
+                                                                <?php if ($is_contrast_issue && !empty($data['all_instances'])): ?>
+                                                                    <!-- Collapsible Accordion for Contrast Issues -->
+                                                                    <div style="margin-top: 10px;">
+                                                                        <details style="cursor: pointer;">
+                                                                            <summary style="color: #0073aa; font-size: 13px; font-weight: 500; padding: 8px 12px; background: #f0f6fc; border-radius: 4px; list-style: none;">
+                                                                                👁️ View all <?php echo intval($data['count']); ?> contrast issues with examples (click to expand)
+                                                                            </summary>
+                                                                            <div style="margin-top: 10px; max-height: 500px; overflow-y: auto; border: 1px solid #e9ecef; border-radius: 4px;">
+                                                                                <?php
+                                                                                $instance_num = 0;
+                                                                                foreach ($data['all_instances'] as $contrast_issue):
+                                                                                    $instance_num++;
+                                                                                    $element_html = $contrast_issue['html_snippet'] ?? $contrast_issue['element'] ?? '';
+                                                                                    $element_selector = $contrast_issue['element_selector'] ?? '';
+                                                                                    $page_url = $contrast_issue['page_url'] ?? '';
+                                                                                    $page_title = $contrast_issue['page_title'] ?? '';
+
+                                                                                    // Extract color information if available
+                                                                                    $message = $contrast_issue['message'] ?? '';
+                                                                                    preg_match('/foreground color: ([^,]+)/i', $message, $fg_match);
+                                                                                    preg_match('/background color: ([^,]+)/i', $message, $bg_match);
+                                                                                    preg_match('/contrast ratio of ([\d.]+)/i', $message, $ratio_match);
+                                                                                    $fg_color = $fg_match[1] ?? '';
+                                                                                    $bg_color_val = $bg_match[1] ?? '';
+                                                                                    $contrast_ratio = $ratio_match[1] ?? '';
+                                                                                ?>
+                                                                                    <div style="padding: 12px 15px; border-bottom: 1px solid #e9ecef; <?php echo $instance_num % 2 === 0 ? 'background: #f8f9fa;' : 'background: #fff;'; ?>">
+                                                                                        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+                                                                                            <strong style="color: #333;">#<?php echo $instance_num; ?></strong>
+                                                                                            <?php if (!empty($page_title)): ?>
+                                                                                                <a href="<?php echo esc_url($page_url); ?>" target="_blank" style="font-size: 12px; color: #0073aa;"><?php echo esc_html($page_title); ?> ↗</a>
+                                                                                            <?php endif; ?>
+                                                                                        </div>
+
+                                                                                        <?php if (!empty($fg_color) || !empty($bg_color_val) || !empty($contrast_ratio)): ?>
+                                                                                            <div style="display: flex; gap: 15px; margin-bottom: 10px; flex-wrap: wrap;">
+                                                                                                <?php if (!empty($fg_color)): ?>
+                                                                                                    <div style="display: flex; align-items: center; gap: 5px;">
+                                                                                                        <span style="font-size: 11px; color: #666;">Foreground:</span>
+                                                                                                        <span style="display: inline-block; width: 20px; height: 20px; background: <?php echo esc_attr($fg_color); ?>; border: 1px solid #ccc; border-radius: 3px;"></span>
+                                                                                                        <code style="font-size: 11px; background: #f8f9fa; padding: 2px 6px; border-radius: 3px;"><?php echo esc_html($fg_color); ?></code>
+                                                                                                    </div>
+                                                                                                <?php endif; ?>
+                                                                                                <?php if (!empty($bg_color_val)): ?>
+                                                                                                    <div style="display: flex; align-items: center; gap: 5px;">
+                                                                                                        <span style="font-size: 11px; color: #666;">Background:</span>
+                                                                                                        <span style="display: inline-block; width: 20px; height: 20px; background: <?php echo esc_attr($bg_color_val); ?>; border: 1px solid #ccc; border-radius: 3px;"></span>
+                                                                                                        <code style="font-size: 11px; background: #f8f9fa; padding: 2px 6px; border-radius: 3px;"><?php echo esc_html($bg_color_val); ?></code>
+                                                                                                    </div>
+                                                                                                <?php endif; ?>
+                                                                                                <?php if (!empty($contrast_ratio)): ?>
+                                                                                                    <div style="display: flex; align-items: center; gap: 5px;">
+                                                                                                        <span style="font-size: 11px; color: #666;">Ratio:</span>
+                                                                                                        <span style="font-size: 12px; font-weight: bold; color: #dc3545;"><?php echo esc_html($contrast_ratio); ?>:1</span>
+                                                                                                        <span style="font-size: 11px; color: #999;">(need 4.5:1)</span>
+                                                                                                    </div>
+                                                                                                <?php endif; ?>
+                                                                                            </div>
+                                                                                        <?php endif; ?>
+
+                                                                                        <?php if (!empty($element_selector)): ?>
+                                                                                            <div style="margin-bottom: 8px;">
+                                                                                                <span style="font-size: 11px; color: #666;">Element:</span>
+                                                                                                <code style="font-size: 11px; background: #e7f3ff; padding: 2px 6px; border-radius: 3px; color: #0366d6;"><?php echo esc_html($element_selector); ?></code>
+                                                                                            </div>
+                                                                                        <?php endif; ?>
+
+                                                                                        <?php if (!empty($element_html)): ?>
+                                                                                            <div style="background: #1e1e1e; padding: 10px 12px; border-radius: 4px; font-family: 'Monaco', 'Consolas', monospace; font-size: 11px; overflow-x: auto; white-space: pre-wrap; word-break: break-all;">
+                                                                                                <code style="color: #ce9178;"><?php echo esc_html(substr($element_html, 0, 300)); ?><?php echo strlen($element_html) > 300 ? '...' : ''; ?></code>
+                                                                                            </div>
+                                                                                        <?php endif; ?>
+
+                                                                                        <div style="margin-top: 8px; padding: 8px 10px; background: #fff3cd; border-radius: 4px; font-size: 11px; color: #856404;">
+                                                                                            <strong>💡 Fix:</strong> Update the CSS to use a color with better contrast. Try using a darker text color or lighter background color.
+                                                                                        </div>
+                                                                                    </div>
+                                                                                <?php endforeach; ?>
+                                                                            </div>
+                                                                        </details>
+                                                                    </div>
+                                                                <?php elseif (!empty($data['sample']['page_title']) || !empty($data['sample']['html_snippet'])): ?>
                                                                     <div style="font-size: 12px; color: #6c757d; margin-top: 4px;">
                                                                         <?php if (!empty($data['sample']['page_title'])): ?>
                                                                             Example: <a href="<?php echo esc_url($data['sample']['page_url'] ?? '#'); ?>" target="_blank"><?php echo esc_html($data['sample']['page_title']); ?></a>
                                                                         <?php endif; ?>
                                                                         <?php if (!empty($data['sample']['html_snippet'])): ?>
-                                                                            <div style="margin-top: 8px; background: #f8f9fa; padding: 8px 12px; border-radius: 4px; border: 1px solid #e9ecef; font-family: monospace; font-size: 11px; overflow-x: auto; max-width: 500px; white-space: nowrap;">
-                                                                                <code style="color: #e83e8c;"><?php echo esc_html(substr($data['sample']['html_snippet'], 0, 200)); ?><?php echo strlen($data['sample']['html_snippet']) > 200 ? '...' : ''; ?></code>
+                                                                            <div style="margin-top: 8px; background: #f8f9fa; padding: 8px 12px; border-radius: 4px; border: 1px solid #e9ecef; font-family: monospace; font-size: 11px; overflow-x: auto; white-space: nowrap;">
+                                                                                <code style="color: #e83e8c;"><?php echo esc_html(substr($data['sample']['html_snippet'], 0, 500)); ?><?php echo strlen($data['sample']['html_snippet']) > 500 ? '...' : ''; ?></code>
                                                                             </div>
                                                                         <?php elseif (!empty($data['sample']['element_selector'])): ?>
                                                                             <div style="margin-top: 8px; background: #f8f9fa; padding: 8px 12px; border-radius: 4px; border: 1px solid #e9ecef; font-family: monospace; font-size: 11px;">
@@ -1380,7 +1549,7 @@ class Admin {
                                                                     </div>
                                                                 <?php endif; ?>
                                                             </td>
-                                                            <td style="padding: 12px 0; text-align: right; color: #6c757d; font-size: 14px;">
+                                                            <td style="padding: 12px 0; text-align: right; color: #6c757d; font-size: 14px; vertical-align: top;">
                                                                 <?php echo intval($data['count']); ?> <?php echo $data['count'] == 1 ? 'issue' : 'issues'; ?>
                                                             </td>
                                                         </tr>
@@ -1546,7 +1715,7 @@ class Admin {
                                 <!-- Dual Scan Summary -->
                                 <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #e9ecef;">
                                     <div style="display: flex; gap: 30px; flex-wrap: wrap;">
-                                        <div><strong>Live Score:</strong> <?php echo intval($dual_scan_results['fixed_score']); ?>%</div>
+                                        <div><strong>Browser Scan Score:</strong> <?php echo intval($dual_scan_results['fixed_score']); ?>%</div>
                                         <div><strong>Pages Scanned:</strong> <?php echo intval($dual_scan_results['pages_scanned']); ?></div>
                                         <div><strong>Remaining Issues:</strong> <?php echo intval($dual_scan_results['total_issues']); ?></div>
                                         <?php if (!empty($dual_scan_results['timestamp'])): ?>
@@ -1577,47 +1746,6 @@ class Admin {
                                                         $fixed_by_type[$type]['count']++;
                                                     }
                                                     foreach ($fixed_by_type as $type => $data):
-                                                    ?>
-                                                        <tr>
-                                                            <td><?php echo esc_html($this->get_issue_description($type)); ?></td>
-                                                            <td><?php echo intval($data['count']); ?></td>
-                                                            <td>
-                                                                <?php if (!empty($data['sample']['page_title'])): ?>
-                                                                    <a href="<?php echo esc_url($data['sample']['page_url'] ?? '#'); ?>" target="_blank"><?php echo esc_html($data['sample']['page_title']); ?></a>
-                                                                <?php else: ?>
-                                                                    -
-                                                                <?php endif; ?>
-                                                            </td>
-                                                        </tr>
-                                                    <?php endforeach; ?>
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    </div>
-                                <?php endif; ?>
-
-                                <?php if (!empty($issue_breakdown['remaining'])): ?>
-                                    <!-- Remaining Issues from Dual Scan -->
-                                    <div style="margin: 20px 0; padding: 15px; background: #fff3cd; border-left: 4px solid #ffc107; border-radius: 4px;">
-                                        <h4 style="margin: 0 0 10px 0; cursor: pointer;" onclick="var content = this.nextElementSibling.nextElementSibling; content.style.display = content.style.display === 'none' ? 'block' : 'none'; this.querySelector('.toggle-indicator').textContent = content.style.display === 'none' ? '▼' : '▲';">
-                                            ⚠ Remaining Issues (<?php echo count($issue_breakdown['remaining']); ?> total)
-                                            <span class="toggle-indicator">▼</span>
-                                        </h4>
-                                        <p style="margin: 0 0 10px 0; color: #856404; font-size: 13px;">These issues require manual attention.</p>
-                                        <div style="display: none;">
-                                            <table class="wp-list-table widefat fixed striped" style="background: #fff;">
-                                                <thead><tr><th>Issue Type</th><th>Count</th><th>Sample Page</th></tr></thead>
-                                                <tbody>
-                                                    <?php
-                                                    $remaining_by_type = [];
-                                                    foreach ($issue_breakdown['remaining'] as $issue) {
-                                                        $type = $issue['type'] ?? 'unknown';
-                                                        if (!isset($remaining_by_type[$type])) {
-                                                            $remaining_by_type[$type] = ['count' => 0, 'sample' => $issue];
-                                                        }
-                                                        $remaining_by_type[$type]['count']++;
-                                                    }
-                                                    foreach ($remaining_by_type as $type => $data):
                                                     ?>
                                                         <tr>
                                                             <td><?php echo esc_html($this->get_issue_description($type)); ?></td>
@@ -1699,7 +1827,350 @@ class Admin {
                         <?php endif; ?>
                     </div>
                 </div>
-                
+
+                <!-- Debug Sections - Show detailed issue breakdown for verification -->
+                <?php if (!empty($dual_scan_results) && !empty($dual_scan_results['issue_breakdown'])): ?>
+                <div class="raywp-report-section" style="background: #fafafa; border: 2px dashed #ccc;">
+                    <h2 style="display: flex; align-items: center; gap: 10px;">
+                        🔍 Debug: Issue Breakdown
+                        <span style="font-size: 12px; font-weight: normal; color: #666;">(Detailed logging for verification)</span>
+                    </h2>
+
+                    <?php
+                    $issue_breakdown = $dual_scan_results['issue_breakdown'];
+                    $all_original_issues = [];
+
+                    // First check for issue_breakdown['detected'] (new structure from axe-core scan)
+                    if (!empty($issue_breakdown['detected'])) {
+                        $all_original_issues = $issue_breakdown['detected'];
+                    }
+                    // Fall back to nested details structure for backwards compatibility
+                    elseif (!empty($dual_scan_results['details'])) {
+                        foreach ($dual_scan_results['details'] as $page) {
+                            if (!empty($page['original_scan']['issues'])) {
+                                foreach ($page['original_scan']['issues'] as $issue) {
+                                    $issue['page_url'] = $page['url'];
+                                    $issue['page_title'] = $page['title'] ?? $page['url'];
+                                    $all_original_issues[] = $issue;
+                                }
+                            }
+                        }
+                    }
+
+                    // Get unfixable issues (auto-fixable but fix didn't work)
+                    $unfixable_issues = !empty($issue_breakdown['unfixable']) ? $issue_breakdown['unfixable'] : [];
+                    ?>
+
+                    <!-- Section 1: All Detected Issues -->
+                    <div style="margin: 15px 0; padding: 15px; background: #fff; border: 1px solid #ddd; border-radius: 4px;">
+                        <h4 style="margin: 0 0 10px 0; cursor: pointer; color: #333;" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'; this.querySelector('.toggle-indicator').textContent = this.nextElementSibling.style.display === 'none' ? '▼' : '▲';">
+                            📋 All Detected Issues (<?php echo count($all_original_issues); ?> total before fixes)
+                            <span class="toggle-indicator" style="margin-left: 10px;">▼</span>
+                        </h4>
+                        <div style="display: none; max-height: 400px; overflow-y: auto;">
+                            <?php if (!empty($all_original_issues)): ?>
+                                <?php
+                                // Group by issue type
+                                $by_type = [];
+                                foreach ($all_original_issues as $issue) {
+                                    $type = $issue['type'] ?? 'unknown';
+                                    if (!isset($by_type[$type])) {
+                                        $by_type[$type] = ['count' => 0, 'auto_fixable' => $issue['auto_fixable'] ?? false, 'severity' => $issue['severity'] ?? 'medium', 'samples' => []];
+                                    }
+                                    $by_type[$type]['count']++;
+                                    if (count($by_type[$type]['samples']) < 3) {
+                                        $by_type[$type]['samples'][] = $issue;
+                                    }
+                                }
+                                ksort($by_type);
+                                ?>
+                                <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                                    <thead style="background: #f5f5f5;">
+                                        <tr>
+                                            <th style="padding: 8px; text-align: left; border-bottom: 1px solid #ddd;">Issue Type</th>
+                                            <th style="padding: 8px; text-align: center; border-bottom: 1px solid #ddd;">Count</th>
+                                            <th style="padding: 8px; text-align: center; border-bottom: 1px solid #ddd;">Severity</th>
+                                            <th style="padding: 8px; text-align: center; border-bottom: 1px solid #ddd;">Auto-Fixable?</th>
+                                            <th style="padding: 8px; text-align: left; border-bottom: 1px solid #ddd;">Sample Element</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php foreach ($by_type as $type => $data): ?>
+                                            <tr style="border-bottom: 1px solid #eee;">
+                                                <td style="padding: 8px;">
+                                                    <strong><?php echo esc_html($this->get_issue_description($type)); ?></strong>
+                                                    <br><code style="font-size: 10px; color: #666;"><?php echo esc_html($type); ?></code>
+                                                </td>
+                                                <td style="padding: 8px; text-align: center; font-weight: bold;"><?php echo intval($data['count']); ?></td>
+                                                <td style="padding: 8px; text-align: center;">
+                                                    <span style="padding: 2px 8px; border-radius: 3px; font-size: 11px; background: <?php
+                                                        echo $data['severity'] === 'critical' ? '#dc3545' :
+                                                            ($data['severity'] === 'high' ? '#dc3545' :
+                                                            ($data['severity'] === 'medium' ? '#ffc107' : '#6c757d'));
+                                                    ?>; color: <?php echo $data['severity'] === 'medium' ? '#000' : '#fff'; ?>;">
+                                                        <?php echo esc_html(ucfirst($data['severity'])); ?>
+                                                    </span>
+                                                </td>
+                                                <td style="padding: 8px; text-align: center;">
+                                                    <?php if ($data['auto_fixable']): ?>
+                                                        <span style="color: #28a745;">✓ Yes</span>
+                                                    <?php else: ?>
+                                                        <span style="color: #dc3545;">✗ No</span>
+                                                    <?php endif; ?>
+                                                </td>
+                                                <td style="padding: 8px; font-family: monospace; font-size: 10px; max-width: 300px; overflow: hidden; text-overflow: ellipsis;">
+                                                    <?php
+                                                    if (!empty($data['samples'][0]['element'])) {
+                                                        echo esc_html(substr($data['samples'][0]['element'], 0, 80));
+                                                        if (strlen($data['samples'][0]['element']) > 80) echo '...';
+                                                    } else {
+                                                        echo '-';
+                                                    }
+                                                    ?>
+                                                </td>
+                                            </tr>
+                                        <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                            <?php else: ?>
+                                <p style="color: #666; margin: 10px 0;">No issues detected in original scan. Run "Check Score With Fixes" to see detailed breakdown.</p>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+
+                    <!-- Section 2: Auto-Fixed Issues -->
+                    <div style="margin: 15px 0; padding: 15px; background: #e8f5e9; border: 1px solid #81c784; border-radius: 4px;">
+                        <h4 style="margin: 0 0 10px 0; cursor: pointer; color: #2e7d32;" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'; this.querySelector('.toggle-indicator').textContent = this.nextElementSibling.style.display === 'none' ? '▼' : '▲';">
+                            ✅ Auto-Fixed Issues (<?php echo !empty($issue_breakdown['fixed']) ? count($issue_breakdown['fixed']) : 0; ?> issues automatically fixed)
+                            <span class="toggle-indicator" style="margin-left: 10px;">▼</span>
+                        </h4>
+                        <div style="display: none; max-height: 400px; overflow-y: auto;">
+                            <?php if (!empty($issue_breakdown['fixed'])): ?>
+                                <?php
+                                // Group fixed issues by type
+                                $fixed_by_type = [];
+                                foreach ($issue_breakdown['fixed'] as $issue) {
+                                    $type = $issue['type'] ?? 'unknown';
+                                    if (!isset($fixed_by_type[$type])) {
+                                        $fixed_by_type[$type] = ['count' => 0, 'samples' => []];
+                                    }
+                                    $fixed_by_type[$type]['count']++;
+                                    if (count($fixed_by_type[$type]['samples']) < 2) {
+                                        $fixed_by_type[$type]['samples'][] = $issue;
+                                    }
+                                }
+                                ksort($fixed_by_type);
+                                ?>
+                                <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                                    <thead style="background: #c8e6c9;">
+                                        <tr>
+                                            <th style="padding: 8px; text-align: left; border-bottom: 1px solid #a5d6a7;">Issue Type Fixed</th>
+                                            <th style="padding: 8px; text-align: center; border-bottom: 1px solid #a5d6a7;">Count Fixed</th>
+                                            <th style="padding: 8px; text-align: left; border-bottom: 1px solid #a5d6a7;">Sample Page</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php foreach ($fixed_by_type as $type => $data): ?>
+                                            <tr style="border-bottom: 1px solid #c8e6c9;">
+                                                <td style="padding: 8px;">
+                                                    <strong><?php echo esc_html($this->get_issue_description($type)); ?></strong>
+                                                    <br><code style="font-size: 10px; color: #666;"><?php echo esc_html($type); ?></code>
+                                                </td>
+                                                <td style="padding: 8px; text-align: center; font-weight: bold; color: #2e7d32;"><?php echo intval($data['count']); ?> ✓</td>
+                                                <td style="padding: 8px;">
+                                                    <?php if (!empty($data['samples'][0]['page_title'])): ?>
+                                                        <a href="<?php echo esc_url($data['samples'][0]['page_url'] ?? '#'); ?>" target="_blank"><?php echo esc_html($data['samples'][0]['page_title']); ?></a>
+                                                    <?php else: ?>
+                                                        -
+                                                    <?php endif; ?>
+                                                </td>
+                                            </tr>
+                                        <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                            <?php else: ?>
+                                <p style="color: #2e7d32; margin: 10px 0;">⚠️ No issues were automatically fixed. This could mean:</p>
+                                <ul style="color: #555; margin: 5px 0 5px 20px; font-size: 12px;">
+                                    <li>Auto-fix settings may be disabled in Settings</li>
+                                    <li>All detected issues require manual attention</li>
+                                    <li>There may be a mismatch between detected issues and available fixes</li>
+                                </ul>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+
+                    <!-- Section 2.5: Unfixable Issues (auto-fixable but fix didn't work) -->
+                    <?php if (!empty($unfixable_issues)): ?>
+                    <div style="margin: 15px 0; padding: 15px; background: #ffebee; border: 1px solid #ef9a9a; border-radius: 4px;">
+                        <h4 style="margin: 0 0 10px 0; cursor: pointer; color: #c62828;" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'; this.querySelector('.toggle-indicator').textContent = this.nextElementSibling.style.display === 'none' ? '▼' : '▲';">
+                            ❌ Auto-Fix Failed (<?php echo count($unfixable_issues); ?> issues should be auto-fixed but weren't)
+                            <span class="toggle-indicator" style="margin-left: 10px;">▼</span>
+                        </h4>
+                        <div style="display: none; max-height: 400px; overflow-y: auto;">
+                            <p style="color: #c62828; font-size: 12px; margin: 0 0 10px 0; padding: 8px; background: #fff; border-radius: 4px;">
+                                <strong>These issues are marked as auto-fixable but still appear in the scan.</strong>
+                                This could mean the DOM processor fix isn't working correctly for these elements, or the issue detection and fix detection don't match.
+                            </p>
+                            <?php
+                            // Group unfixable issues by type
+                            $unfixable_by_type = [];
+                            foreach ($unfixable_issues as $issue) {
+                                $type = $issue['type'] ?? 'unknown';
+                                if (!isset($unfixable_by_type[$type])) {
+                                    $unfixable_by_type[$type] = ['count' => 0, 'severity' => $issue['severity'] ?? 'medium', 'samples' => []];
+                                }
+                                $unfixable_by_type[$type]['count']++;
+                                if (count($unfixable_by_type[$type]['samples']) < 2) {
+                                    $unfixable_by_type[$type]['samples'][] = $issue;
+                                }
+                            }
+                            ksort($unfixable_by_type);
+                            ?>
+                            <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                                <thead style="background: #ffcdd2;">
+                                    <tr>
+                                        <th style="padding: 8px; text-align: left; border-bottom: 1px solid #ef9a9a;">Issue Type</th>
+                                        <th style="padding: 8px; text-align: center; border-bottom: 1px solid #ef9a9a;">Count</th>
+                                        <th style="padding: 8px; text-align: center; border-bottom: 1px solid #ef9a9a;">Severity</th>
+                                        <th style="padding: 8px; text-align: left; border-bottom: 1px solid #ef9a9a;">Sample Element</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($unfixable_by_type as $type => $data): ?>
+                                        <tr style="border-bottom: 1px solid #ffcdd2;">
+                                            <td style="padding: 8px;">
+                                                <strong><?php echo esc_html($this->get_issue_description($type)); ?></strong>
+                                                <br><code style="font-size: 10px; color: #666;"><?php echo esc_html($type); ?></code>
+                                            </td>
+                                            <td style="padding: 8px; text-align: center; font-weight: bold; color: #c62828;"><?php echo intval($data['count']); ?></td>
+                                            <td style="padding: 8px; text-align: center;">
+                                                <span style="padding: 2px 8px; border-radius: 3px; font-size: 11px; background: <?php
+                                                    echo $data['severity'] === 'critical' ? '#dc3545' :
+                                                        ($data['severity'] === 'high' ? '#dc3545' :
+                                                        ($data['severity'] === 'medium' ? '#ffc107' : '#6c757d'));
+                                                ?>; color: <?php echo $data['severity'] === 'medium' ? '#000' : '#fff'; ?>;">
+                                                    <?php echo esc_html(ucfirst($data['severity'])); ?>
+                                                </span>
+                                            </td>
+                                            <td style="padding: 8px; font-family: monospace; font-size: 10px; max-width: 300px; overflow: hidden; text-overflow: ellipsis;">
+                                                <?php
+                                                if (!empty($data['samples'][0]['element'])) {
+                                                    echo esc_html(substr($data['samples'][0]['element'], 0, 80));
+                                                    if (strlen($data['samples'][0]['element']) > 80) echo '...';
+                                                } else {
+                                                    echo '-';
+                                                }
+                                                ?>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <?php endif; ?>
+
+                    <!-- Section 3: Issues After Auto-Fix (Remaining) -->
+                    <div style="margin: 15px 0; padding: 15px; background: #fff3e0; border: 1px solid #ffb74d; border-radius: 4px;">
+                        <h4 style="margin: 0 0 10px 0; cursor: pointer; color: #e65100;" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'; this.querySelector('.toggle-indicator').textContent = this.nextElementSibling.style.display === 'none' ? '▼' : '▲';">
+                            ⚠️ Issues After Auto-Fix (<?php echo !empty($issue_breakdown['remaining']) ? count($issue_breakdown['remaining']) : 0; ?> issues require manual attention)
+                            <span class="toggle-indicator" style="margin-left: 10px;">▼</span>
+                        </h4>
+                        <div style="display: none; max-height: 400px; overflow-y: auto;">
+                            <?php if (!empty($issue_breakdown['remaining'])): ?>
+                                <?php
+                                // Group remaining issues by type
+                                $remaining_by_type = [];
+                                foreach ($issue_breakdown['remaining'] as $issue) {
+                                    $type = $issue['type'] ?? 'unknown';
+                                    if (!isset($remaining_by_type[$type])) {
+                                        $remaining_by_type[$type] = ['count' => 0, 'severity' => $issue['severity'] ?? 'medium', 'auto_fixable' => $issue['auto_fixable'] ?? false, 'samples' => []];
+                                    }
+                                    $remaining_by_type[$type]['count']++;
+                                    if (count($remaining_by_type[$type]['samples']) < 2) {
+                                        $remaining_by_type[$type]['samples'][] = $issue;
+                                    }
+                                }
+                                ksort($remaining_by_type);
+                                ?>
+                                <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                                    <thead style="background: #ffe0b2;">
+                                        <tr>
+                                            <th style="padding: 8px; text-align: left; border-bottom: 1px solid #ffcc80;">Issue Type</th>
+                                            <th style="padding: 8px; text-align: center; border-bottom: 1px solid #ffcc80;">Count</th>
+                                            <th style="padding: 8px; text-align: center; border-bottom: 1px solid #ffcc80;">Severity</th>
+                                            <th style="padding: 8px; text-align: center; border-bottom: 1px solid #ffcc80;">Why Not Fixed?</th>
+                                            <th style="padding: 8px; text-align: left; border-bottom: 1px solid #ffcc80;">Sample</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php foreach ($remaining_by_type as $type => $data): ?>
+                                            <tr style="border-bottom: 1px solid #ffe0b2;">
+                                                <td style="padding: 8px;">
+                                                    <strong><?php echo esc_html($this->get_issue_description($type)); ?></strong>
+                                                    <br><code style="font-size: 10px; color: #666;"><?php echo esc_html($type); ?></code>
+                                                </td>
+                                                <td style="padding: 8px; text-align: center; font-weight: bold;"><?php echo intval($data['count']); ?></td>
+                                                <td style="padding: 8px; text-align: center;">
+                                                    <span style="padding: 2px 8px; border-radius: 3px; font-size: 11px; background: <?php
+                                                        echo $data['severity'] === 'critical' ? '#dc3545' :
+                                                            ($data['severity'] === 'high' ? '#dc3545' :
+                                                            ($data['severity'] === 'medium' ? '#ffc107' : '#6c757d'));
+                                                    ?>; color: <?php echo $data['severity'] === 'medium' ? '#000' : '#fff'; ?>;">
+                                                        <?php echo esc_html(ucfirst($data['severity'])); ?>
+                                                    </span>
+                                                </td>
+                                                <td style="padding: 8px; text-align: center; font-size: 11px;">
+                                                    <?php if ($data['auto_fixable']): ?>
+                                                        <span style="color: #e65100;">⚠️ Marked fixable but wasn't fixed</span>
+                                                    <?php else: ?>
+                                                        <span style="color: #666;">Manual fix required</span>
+                                                    <?php endif; ?>
+                                                </td>
+                                                <td style="padding: 8px; font-size: 11px;">
+                                                    <?php if (!empty($data['samples'][0]['page_title'])): ?>
+                                                        <a href="<?php echo esc_url($data['samples'][0]['page_url'] ?? '#'); ?>" target="_blank"><?php echo esc_html($data['samples'][0]['page_title']); ?></a>
+                                                    <?php elseif (!empty($data['samples'][0]['element'])): ?>
+                                                        <code style="font-size: 10px;"><?php echo esc_html(substr($data['samples'][0]['element'], 0, 50)); ?></code>
+                                                    <?php else: ?>
+                                                        -
+                                                    <?php endif; ?>
+                                                </td>
+                                            </tr>
+                                        <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                            <?php else: ?>
+                                <p style="color: #2e7d32; margin: 10px 0;">🎉 All issues were automatically fixed! No manual attention required.</p>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+
+                    <!-- Summary -->
+                    <div style="margin-top: 15px; padding: 10px; background: #e3f2fd; border-radius: 4px; font-size: 12px;">
+                        <strong>Summary:</strong>
+                        <?php
+                        $total_original = count($all_original_issues);
+                        $total_fixed = !empty($issue_breakdown['fixed']) ? count($issue_breakdown['fixed']) : 0;
+                        $total_remaining = !empty($issue_breakdown['remaining']) ? count($issue_breakdown['remaining']) : 0;
+                        $total_unfixable = count($unfixable_issues);
+                        ?>
+                        <?php echo intval($total_original); ?> issues detected →
+                        <?php echo intval($total_fixed); ?> auto-fixed →
+                        <?php echo intval($total_remaining); ?> require manual fix
+                        <?php if ($total_unfixable > 0): ?>
+                            → <?php echo intval($total_unfixable); ?> auto-fix failed
+                        <?php endif; ?>
+                        <?php if ($total_original > 0 && $total_fixed > 0): ?>
+                            <span style="color: #2e7d32; margin-left: 10px;">(<?php echo round(($total_fixed / $total_original) * 100); ?>% automatically resolved)</span>
+                        <?php endif; ?>
+                        <?php if ($total_original > 0 && $total_unfixable > 0): ?>
+                            <br><small style="color: #e65100;">Note: <?php echo intval($total_unfixable); ?> issues are marked as auto-fixable but the fix did not resolve them on the live site.</small>
+                        <?php endif; ?>
+                    </div>
+                </div>
+                <?php endif; ?>
+
                 <div class="raywp-report-section">
                     <h2><?php esc_html_e('What This Plugin Checks', 'raywp-accessibility'); ?></h2>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px;">
@@ -1785,7 +2256,7 @@ class Admin {
     /**
      * Get user-friendly issue descriptions
      */
-    private function get_issue_description($issue_type) {
+    public function get_issue_description($issue_type) {
         $descriptions = [
             // Images
             'missing_alt' => 'Missing alt text on images',
@@ -1909,10 +2380,110 @@ class Admin {
             'dlitem_invalid' => 'Definition list item invalid',
             'list_invalid' => 'List structure invalid',
             'listitem_invalid' => 'List item not properly contained',
-            'p_used_as_heading' => 'Paragraph styled as heading'
+            'p_used_as_heading' => 'Paragraph styled as heading',
+
+            // axe-core Issue IDs (kebab-case)
+            // These are the actual IDs returned by the axe-core accessibility testing library
+            'color-contrast' => 'Insufficient Color Contrast',
+            'color-contrast-enhanced' => 'Does Not Meet Enhanced Contrast Requirements',
+            'page-has-heading-one' => 'Page Missing Level 1 Heading (H1)',
+            'heading-order' => 'Heading Levels Out of Order',
+            'empty-heading' => 'Empty Heading Elements',
+            'presentation-role-conflict' => 'ARIA Role Presentation Conflict',
+            'frame-title' => 'IFrame Missing Title Attribute',
+            'frame-title-unique' => 'IFrame Titles Not Unique',
+            'link-name' => 'Link Missing Accessible Name',
+            'link-in-text-block' => 'Links Not Distinguishable from Text',
+            'button-name' => 'Button Missing Accessible Name',
+            'image-alt' => 'Image Missing Alt Text',
+            'image-redundant-alt' => 'Image Has Redundant Alt Text',
+            'input-image-alt' => 'Image Input Missing Alt Text',
+            'role-img-alt' => 'Element with role=img Missing Alt Text',
+            'svg-img-alt' => 'SVG Image Missing Accessible Name',
+            'label' => 'Form Field Missing Label',
+            'label-title-only' => 'Form Field Labeled Only by Title',
+            'label-content-name-mismatch' => 'Label Content Does Not Match Accessible Name',
+            'landmark-one-main' => 'Page Missing Main Landmark',
+            'landmark-unique' => 'Landmark Regions Not Unique',
+            'landmark-banner-is-top-level' => 'Banner Not at Top Level',
+            'landmark-contentinfo-is-top-level' => 'Footer Not at Top Level',
+            'landmark-main-is-top-level' => 'Main Not at Top Level',
+            'landmark-no-duplicate-banner' => 'Multiple Banner Landmarks',
+            'landmark-no-duplicate-contentinfo' => 'Multiple Footer Landmarks',
+            'landmark-no-duplicate-main' => 'Multiple Main Landmarks',
+            'region' => 'Content Outside Landmark Region',
+            'bypass' => 'Missing Skip Link or Heading Structure',
+            'duplicate-id' => 'Duplicate ID Attribute',
+            'duplicate-id-active' => 'Active Element Has Duplicate ID',
+            'duplicate-id-aria' => 'ARIA-referenced Element Has Duplicate ID',
+            'html-has-lang' => 'Page Language Not Declared',
+            'html-lang-valid' => 'Invalid Page Language Code',
+            'html-xml-lang-mismatch' => 'HTML and XML Language Mismatch',
+            'valid-lang' => 'Invalid Language Attribute',
+            'document-title' => 'Page Missing Document Title',
+            'meta-viewport' => 'Viewport Zooming Disabled',
+            'meta-viewport-large' => 'Viewport Maximum Scale Too Restrictive',
+            'meta-refresh' => 'Page Uses Meta Refresh',
+            'aria-allowed-attr' => 'ARIA Attribute Not Allowed on Element',
+            'aria-allowed-role' => 'ARIA Role Not Allowed on Element',
+            'aria-command-name' => 'ARIA Command Missing Accessible Name',
+            'aria-dialog-name' => 'Dialog Missing Accessible Name',
+            'aria-hidden-body' => 'Body Element Has aria-hidden=true',
+            'aria-hidden-focus' => 'Focusable Element Inside aria-hidden Container',
+            'aria-input-field-name' => 'ARIA Input Field Missing Accessible Name',
+            'aria-meter-name' => 'Meter Element Missing Accessible Name',
+            'aria-progressbar-name' => 'Progress Bar Missing Accessible Name',
+            'aria-required-attr' => 'Required ARIA Attributes Missing',
+            'aria-required-children' => 'ARIA Role Missing Required Children',
+            'aria-required-parent' => 'ARIA Role Missing Required Parent',
+            'aria-roles' => 'Invalid ARIA Role Value',
+            'aria-roledescription' => 'Invalid aria-roledescription Usage',
+            'aria-toggle-field-name' => 'ARIA Toggle Missing Accessible Name',
+            'aria-tooltip-name' => 'Tooltip Missing Accessible Name',
+            'aria-treeitem-name' => 'Tree Item Missing Accessible Name',
+            'aria-valid-attr' => 'Invalid ARIA Attribute',
+            'aria-valid-attr-value' => 'Invalid ARIA Attribute Value',
+            'tabindex' => 'Invalid tabindex Attribute Value',
+            'focus-order-semantics' => 'Focus Order Semantics Incorrect',
+            'scrollable-region-focusable' => 'Scrollable Region Not Keyboard Accessible',
+            'nested-interactive' => 'Interactive Controls Nested',
+            'no-focusable-content' => 'Content Not Keyboard Accessible',
+            'video-caption' => 'Video Missing Captions',
+            'audio-caption' => 'Audio Missing Transcript',
+            'object-alt' => 'Object Element Missing Accessible Name',
+            'accesskeys' => 'Access Key Attribute Conflicts',
+            'server-side-image-map' => 'Server-side Image Map Used',
+            'blink' => 'Deprecated Blink Element Used',
+            'marquee' => 'Deprecated Marquee Element Used',
+            'definition-list' => 'Definition List Structure Invalid',
+            'dlitem' => 'Definition List Item Invalid',
+            'list' => 'List Structure Invalid',
+            'listitem' => 'List Item Not Properly Contained',
+            'td-headers-attr' => 'Table Headers Attribute Invalid',
+            'th-has-data-cells' => 'Table Header Has No Data Cells',
+            'table-duplicate-name' => 'Table Has Duplicate Accessible Name',
+            'table-fake-caption' => 'Table Uses Fake Caption',
+            'scope-attr-valid' => 'Invalid Scope Attribute',
+            'td-has-header' => 'Table Data Cell Missing Header',
+            'select-name' => 'Select Element Missing Accessible Name',
+            'input-button-name' => 'Input Button Missing Accessible Name',
+            'autocomplete-valid' => 'Invalid Autocomplete Attribute',
+            'form-field-multiple-labels' => 'Form Field Has Multiple Labels',
+            'identical-links-same-purpose' => 'Identical Links Have Different Purposes',
+            'p-as-heading' => 'Paragraph Styled as Heading',
+            'avoid-inline-spacing' => 'Text Spacing May Be Too Restrictive',
+            'target-size' => 'Touch Target Size Too Small',
+            'focus-visible' => 'Focus Indicator Not Visible'
         ];
 
-        return isset($descriptions[$issue_type]) ? $descriptions[$issue_type] : str_replace('_', ' ', ucfirst($issue_type));
+        // Handle both snake_case and kebab-case fallbacks
+        if (isset($descriptions[$issue_type])) {
+            return $descriptions[$issue_type];
+        }
+
+        // Convert to readable format: replace underscores/hyphens with spaces and capitalize
+        $readable = str_replace(['-', '_'], ' ', $issue_type);
+        return ucwords($readable);
     }
     
     /**
@@ -2016,12 +2587,14 @@ class Admin {
     
     /**
      * Determine which issues are auto-fixable
+     * Note: Default settings from activator are: fix_empty_alt, add_skip_links, fix_forms, add_main_landmark
      */
     public function is_auto_fixable($issue_type) {
         // Check which auto-fixes are currently enabled in settings
         $settings = get_option('raywp_accessibility_settings', []);
 
-        // Helper to check if a setting is enabled (default true if not set)
+        // Helper to check if a setting is enabled
+        // Uses default=true for settings that are enabled by default in the activator
         $is_enabled = function($key, $default = false) use ($settings) {
             if (!isset($settings[$key])) {
                 return $default;
@@ -2031,15 +2604,18 @@ class Admin {
 
         $auto_fixable_map = [
             // Language - plugin adds lang attribute to html element
-            'missing_page_language' => $is_enabled('fix_page_language'),
-            'invalid_page_language' => $is_enabled('fix_page_language'),
+            // Default: enabled (fix_lang_attr in DOM processor)
+            'missing_page_language' => $is_enabled('fix_lang_attr', true),
+            'invalid_page_language' => $is_enabled('fix_lang_attr', true),
 
             // Landmarks - plugin can add main landmark wrapper
-            'missing_main_landmark' => $is_enabled('add_main_landmark'),
-            'content_outside_landmark' => $is_enabled('add_main_landmark'), // Fixed by wrapping content in main
+            // Default: enabled (add_main_landmark in activator defaults)
+            'missing_main_landmark' => $is_enabled('add_main_landmark', true),
+            'content_outside_landmark' => $is_enabled('add_main_landmark', true),
 
             // Skip links - plugin adds skip navigation
-            'missing_skip_links' => $is_enabled('add_main_landmark'),
+            // Default: enabled (add_skip_links in activator defaults)
+            'missing_skip_links' => $is_enabled('add_skip_links', true),
 
             // Buttons - plugin can add aria-label to empty buttons
             'button_missing_accessible_name' => $is_enabled('fix_button_names', true),
@@ -2051,29 +2627,41 @@ class Admin {
             'empty_link' => $is_enabled('fix_generic_links', true),
 
             // Headings - plugin can fix heading hierarchy
-            'heading_hierarchy_skip' => $is_enabled('fix_heading_hierarchy'),
-            'multiple_h1' => $is_enabled('fix_heading_hierarchy'),
-            'empty_heading' => $is_enabled('fix_heading_hierarchy'),
+            // Default: enabled (fix_heading_hierarchy in DOM processor, enabled by default)
+            'heading_hierarchy_skip' => $is_enabled('fix_heading_hierarchy', true),
+            'multiple_h1' => $is_enabled('fix_heading_hierarchy', true),
+            'empty_heading' => $is_enabled('fix_empty_headings', true),
 
             // IFrames - plugin adds title attributes
             'missing_iframe_title' => $is_enabled('fix_iframe_titles', true),
             'iframe_missing_title' => $is_enabled('fix_iframe_titles', true),
+            'frame-title' => $is_enabled('fix_iframe_titles', true),
+
+            // Missing H1 heading - plugin can add visually hidden H1
+            'page-has-heading-one' => $is_enabled('fix_missing_h1', true),
+            'missing_h1' => $is_enabled('fix_missing_h1', true),
+
+            // ARIA role presentation conflicts - plugin removes conflicting roles
+            'presentation-role-conflict' => $is_enabled('fix_presentation_conflict', true),
+            'aria_presentation_conflict' => $is_enabled('fix_presentation_conflict', true),
 
             // Duplicate IDs - plugin can make IDs unique
-            'duplicate_ids' => $is_enabled('fix_duplicate_ids'),
-            'duplicate_active_id' => $is_enabled('fix_duplicate_ids'),
-            'duplicate_aria_id' => $is_enabled('fix_duplicate_ids'),
+            'duplicate_ids' => $is_enabled('fix_duplicate_ids', true),
+            'duplicate_active_id' => $is_enabled('fix_duplicate_ids', true),
+            'duplicate_aria_id' => $is_enabled('fix_duplicate_ids', true),
 
             // Forms - plugin can enhance form accessibility
-            'missing_label' => $is_enabled('fix_forms'),
-            'required_no_aria' => $is_enabled('fix_forms'),
-            'validation_no_error_message' => $is_enabled('fix_forms'),
-            'missing_autocomplete_attribute' => $is_enabled('fix_forms'),
-            'error_no_role' => $is_enabled('fix_forms'),
-            'generic_error_message' => $is_enabled('fix_forms'),
+            // Default: enabled (fix_forms in activator defaults)
+            'missing_label' => $is_enabled('fix_forms', true) || $is_enabled('fix_form_labels', true),
+            'required_no_aria' => $is_enabled('fix_forms', true),
+            'validation_no_error_message' => $is_enabled('fix_forms', true),
+            'missing_autocomplete_attribute' => $is_enabled('fix_forms', true),
+            'error_no_role' => $is_enabled('fix_forms', true),
+            'generic_error_message' => $is_enabled('fix_forms', true),
 
             // Images - basic alt text handling
-            'missing_alt' => $is_enabled('fix_forms'), // Basic placeholder alt
+            // Default: enabled (fix_empty_alt in activator defaults)
+            'missing_alt' => $is_enabled('fix_empty_alt', true),
 
             // Videos/Animation
             'decorative_video_no_aria_hidden' => $is_enabled('fix_video_accessibility'),

@@ -175,7 +175,25 @@ class Dom_Processor {
             $this->fix_lighthouse_issues($xpath);
             $modified = true;
         }
-        
+
+        // Fix iframe missing title attributes (enabled by default)
+        if (!isset($this->settings['fix_iframe_titles']) || !empty($this->settings['fix_iframe_titles'])) {
+            $this->fix_iframe_titles($xpath);
+            $modified = true;
+        }
+
+        // Fix page missing level 1 heading (enabled by default)
+        if (!isset($this->settings['fix_missing_h1']) || !empty($this->settings['fix_missing_h1'])) {
+            $this->fix_missing_h1($dom, $xpath);
+            $modified = true;
+        }
+
+        // Fix ARIA role presentation conflicts (enabled by default)
+        if (!isset($this->settings['fix_presentation_conflict']) || !empty($this->settings['fix_presentation_conflict'])) {
+            $this->fix_presentation_conflict($xpath);
+            $modified = true;
+        }
+
         if ($modified) {
             $html = $dom->saveHTML();
             $html = str_replace('<?xml encoding="UTF-8">', '', $html);
@@ -1089,15 +1107,18 @@ class Dom_Processor {
      * Fix skip links not being focusable
      */
     private function fix_skip_link_focus($xpath) {
-        $skip_links = $xpath->query('//a[contains(@class, "skip") or (contains(@href, "#") and (contains(translate(text(), "SKIP", "skip"), "skip") or contains(@class, "skip")))]');
-        
+        // Exclude admin bar skip links - they're WordPress core elements we shouldn't modify
+        $skip_links = $xpath->query('//a[not(ancestor::*[@id="wpadminbar"]) and (contains(@class, "skip") or (contains(@href, "#") and (contains(translate(text(), "SKIP", "skip"), "skip") or contains(@class, "skip"))))]');
+
         foreach ($skip_links as $link) {
             // Remove screen-reader-text class that may hide the link
             $current_class = $link->getAttribute('class');
             $current_class = str_replace('screen-reader-text', '', $current_class);
             
-            // Ensure skip links are focusable
-            if (!$link->hasAttribute('tabindex') || $link->getAttribute('tabindex') === '-1') {
+            // Ensure skip links are focusable with proper tabindex
+            // Use tabindex="0" - positive tabindex values (like "1") are bad practice
+            $current_tabindex = $link->getAttribute('tabindex');
+            if (!$link->hasAttribute('tabindex') || $current_tabindex === '-1' || intval($current_tabindex) > 0) {
                 $link->setAttribute('tabindex', '0');
             }
             
@@ -1306,6 +1327,249 @@ class Dom_Processor {
                 'RayWP Accessibility Warning: Slow page processing detected - %.2f ms',
                 $processing_time
             ));
+        }
+    }
+
+    /**
+     * Fix iframes missing title attributes
+     * Adds descriptive title based on src or generic fallback
+     */
+    private function fix_iframe_titles($xpath) {
+        // Find iframes without title attribute or with empty title
+        $iframes = $xpath->query('//iframe[not(@title) or normalize-space(@title)=""]');
+
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('RayWP Accessibility: Found ' . $iframes->length . ' iframes needing title fix');
+        }
+
+        foreach ($iframes as $iframe) {
+            $src = $iframe->getAttribute('src');
+            $title = '';
+
+            // Try to determine a meaningful title from the iframe source
+            if (!empty($src)) {
+                // YouTube
+                if (strpos($src, 'youtube.com') !== false || strpos($src, 'youtu.be') !== false) {
+                    $title = 'YouTube video player';
+                }
+                // Vimeo
+                elseif (strpos($src, 'vimeo.com') !== false) {
+                    $title = 'Vimeo video player';
+                }
+                // Google Maps
+                elseif (strpos($src, 'google.com/maps') !== false || strpos($src, 'maps.google') !== false) {
+                    $title = 'Google Maps';
+                }
+                // Spotify
+                elseif (strpos($src, 'spotify.com') !== false) {
+                    $title = 'Spotify audio player';
+                }
+                // SoundCloud
+                elseif (strpos($src, 'soundcloud.com') !== false) {
+                    $title = 'SoundCloud audio player';
+                }
+                // Twitter/X
+                elseif (strpos($src, 'twitter.com') !== false || strpos($src, 'x.com') !== false) {
+                    $title = 'Twitter embed';
+                }
+                // Facebook
+                elseif (strpos($src, 'facebook.com') !== false) {
+                    $title = 'Facebook embed';
+                }
+                // Instagram
+                elseif (strpos($src, 'instagram.com') !== false) {
+                    $title = 'Instagram embed';
+                }
+                // Calendly
+                elseif (strpos($src, 'calendly.com') !== false) {
+                    $title = 'Calendly scheduling widget';
+                }
+                // Typeform
+                elseif (strpos($src, 'typeform.com') !== false) {
+                    $title = 'Typeform form';
+                }
+                // Payment/Donation widgets
+                elseif (strpos($src, 'paypal.com') !== false || strpos($src, 'stripe.com') !== false) {
+                    $title = 'Payment form';
+                }
+                elseif (strpos($src, 'donorbox') !== false || strpos($src, 'gofundme') !== false) {
+                    $title = 'Donation form';
+                }
+                // Generic video
+                elseif (preg_match('/\.(mp4|webm|ogg|mov)/i', $src) || strpos($src, 'video') !== false) {
+                    $title = 'Video player';
+                }
+                // Generic form
+                elseif (strpos($src, 'form') !== false) {
+                    $title = 'External form';
+                }
+                else {
+                    // Extract domain for generic title
+                    $parsed = parse_url($src);
+                    if (!empty($parsed['host'])) {
+                        $host = preg_replace('/^www\./', '', $parsed['host']);
+                        $title = 'Embedded content from ' . $host;
+                    } else {
+                        $title = 'Embedded content';
+                    }
+                }
+            } else {
+                $title = 'Embedded content';
+            }
+
+            $iframe->setAttribute('title', $title);
+
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('RayWP Accessibility: Added title "' . $title . '" to iframe with src: ' . substr($src, 0, 100));
+            }
+        }
+    }
+
+    /**
+     * Fix page missing level 1 heading (H1)
+     * Adds H1 if none exists on the page
+     */
+    private function fix_missing_h1($dom, $xpath) {
+        // Check if any H1 exists
+        $h1s = $xpath->query('//h1');
+
+        if ($h1s->length === 0) {
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('RayWP Accessibility: Page missing H1, attempting to add one');
+            }
+
+            // Strategy 1: Look for the page/post title in common containers
+            $title_selectors = [
+                '//header//h2[contains(@class, "title") or contains(@class, "entry-title") or contains(@class, "page-title") or contains(@class, "post-title")]',
+                '//div[contains(@class, "entry-header")]//h2',
+                '//article//h2[contains(@class, "title")]',
+                '//main//h2[1]', // First H2 in main content
+                '//*[contains(@class, "hero")]//h2',
+                '//*[contains(@class, "banner")]//h2',
+            ];
+
+            $promoted_heading = null;
+            foreach ($title_selectors as $selector) {
+                $headings = $xpath->query($selector);
+                if ($headings->length > 0) {
+                    $promoted_heading = $headings->item(0);
+                    break;
+                }
+            }
+
+            if ($promoted_heading) {
+                // Convert the H2 to H1 by using aria-level
+                // (keeping visual appearance but fixing accessibility)
+                $promoted_heading->setAttribute('role', 'heading');
+                $promoted_heading->setAttribute('aria-level', '1');
+                $promoted_heading->setAttribute('data-raywp-promoted-h1', 'true');
+
+                if (defined('WP_DEBUG') && WP_DEBUG) {
+                    error_log('RayWP Accessibility: Promoted existing heading to aria-level="1"');
+                }
+            } else {
+                // Strategy 2: Create visually hidden H1 from page title
+                $body = $xpath->query('//body')->item(0);
+                if ($body) {
+                    // Try to get page title from WordPress document title element
+                    $title_element = $xpath->query('//title')->item(0);
+                    $page_title = $title_element ? $title_element->textContent : '';
+
+                    // Clean up typical WordPress title format "Page Title | Site Name"
+                    if (!empty($page_title)) {
+                        $page_title = preg_replace('/\s*[|\-–—]\s*[^|\-–—]+$/', '', $page_title);
+                        $page_title = trim($page_title);
+                    }
+
+                    if (empty($page_title)) {
+                        $page_title = 'Page Content';
+                    }
+
+                    // Create H1 element
+                    $h1 = $dom->createElement('h1', $page_title);
+                    $h1->setAttribute('class', 'raywp-visually-hidden');
+                    $h1->setAttribute('id', 'raywp-page-heading');
+
+                    // Insert after skip links or at beginning of main/body
+                    $main_elements = $xpath->query('//main | //*[@role="main"]');
+                    if ($main_elements->length > 0) {
+                        $main = $main_elements->item(0);
+                        if ($main->firstChild) {
+                            $main->insertBefore($h1, $main->firstChild);
+                        } else {
+                            $main->appendChild($h1);
+                        }
+                    } else {
+                        // Insert after skip links container or at body start
+                        $skip_links = $xpath->query('//*[contains(@class, "skip-link")]')->item(0);
+                        if ($skip_links && $skip_links->parentNode) {
+                            $skip_links->parentNode->insertBefore($h1, $skip_links->nextSibling);
+                        } elseif ($body->firstChild) {
+                            $body->insertBefore($h1, $body->firstChild);
+                        }
+                    }
+
+                    if (defined('WP_DEBUG') && WP_DEBUG) {
+                        error_log('RayWP Accessibility: Added visually hidden H1: "' . $page_title . '"');
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Fix ARIA role presentation conflicts
+     * Removes role="presentation" or role="none" from interactive elements
+     */
+    private function fix_presentation_conflict($xpath) {
+        // Interactive elements that should never have role="presentation" or role="none"
+        $interactive_tags = ['a', 'button', 'input', 'select', 'textarea', 'details', 'summary', 'audio', 'video'];
+
+        foreach ($interactive_tags as $tag) {
+            // Find elements with role="presentation" or role="none"
+            $elements = $xpath->query('//' . $tag . '[@role="presentation" or @role="none"]');
+
+            foreach ($elements as $element) {
+                $old_role = $element->getAttribute('role');
+                $element->removeAttribute('role');
+
+                if (defined('WP_DEBUG') && WP_DEBUG) {
+                    error_log('RayWP Accessibility: Removed role="' . $old_role . '" from ' . $tag . ' element (presentation conflict)');
+                }
+            }
+        }
+
+        // Also fix focusable elements with role="presentation/none" (tabindex >= 0)
+        $focusable_with_presentation = $xpath->query('//*[(@role="presentation" or @role="none") and (@tabindex >= 0)]');
+
+        foreach ($focusable_with_presentation as $element) {
+            $old_role = $element->getAttribute('role');
+            $element->removeAttribute('role');
+
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                $tag = $element->tagName;
+                error_log('RayWP Accessibility: Removed role="' . $old_role . '" from focusable ' . $tag . ' element');
+            }
+        }
+
+        // Fix images with role="presentation" that have alt text (they should be decorative, not have alt)
+        // Or remove role if they're informative
+        $imgs_with_presentation = $xpath->query('//img[(@role="presentation" or @role="none") and @alt and normalize-space(@alt)!=""]');
+
+        foreach ($imgs_with_presentation as $img) {
+            // If image has meaningful alt text, remove the presentation role
+            $alt = $img->getAttribute('alt');
+            if (!empty(trim($alt))) {
+                $img->removeAttribute('role');
+
+                if (defined('WP_DEBUG') && WP_DEBUG) {
+                    error_log('RayWP Accessibility: Removed role="presentation" from img with alt text: "' . substr($alt, 0, 50) . '"');
+                }
+            }
+        }
+
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('RayWP Accessibility: Completed presentation role conflict fixes');
         }
     }
 }

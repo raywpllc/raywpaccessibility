@@ -102,8 +102,22 @@
 
             showProgress('Processing results...', 92);
 
+            // DEBUG: Log raw axe-core results
+            console.group('RayWP Accessibility Scan Debug');
+            console.log('Raw scanResults:', scanResults);
+            console.log('Violations by type:', scanResults.violationsByType);
+            console.log('Pages scanned:', scanResults.pages.length);
+            console.log('Total violations count:', scanResults.totalViolations);
+
             // Step 3: Convert results to our internal format
             const convertedResults = scanner.convertToInternalFormat(scanResults);
+
+            // DEBUG: Log converted results
+            console.log('Converted results (internal format):', convertedResults);
+            if (convertedResults.issues) {
+                console.log('Issue types found:', [...new Set(convertedResults.issues.map(i => i.type))]);
+            }
+            console.groupEnd();
 
             // Step 4: Send results to server for processing
             showProgress('Saving results...', 95);

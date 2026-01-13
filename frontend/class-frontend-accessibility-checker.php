@@ -181,8 +181,8 @@ class Accessibility_Checker {
         
         // Get element's outer HTML (truncated for display)
         $html_snippet = $element->ownerDocument->saveHTML($element);
-        if (strlen($html_snippet) > 200) {
-            $html_snippet = substr($html_snippet, 0, 200) . '...';
+        if (strlen($html_snippet) > 500) {
+            $html_snippet = substr($html_snippet, 0, 500) . '...';
         }
         
         // Get text content (truncated)
@@ -1558,22 +1558,41 @@ class Accessibility_Checker {
     private function add_contrast_issue($element, $text_color, $bg_color, &$issues, $custom_message = null) {
         $details = $this->get_element_details($element, 'contrast');
         $message = $custom_message ?: 'Potential low color contrast detected';
-        
+
+        // Convert colors to hex for better readability
+        $text_hex = $this->color_to_hex($text_color);
+        $bg_hex = $this->color_to_hex($bg_color);
+
         // Determine more specific description and fix instructions based on issue type
         if ($bg_color === 'background image without fallback') {
-            $description = "This text appears over a background image without a fallback background color (text: {$text_color}). WCAG requires a solid background color for text over images.";
+            $description = "This text appears over a background image without a fallback background color (text: {$text_hex}). WCAG requires a solid background color for text over images.";
             $how_to_fix = 'Add a background-color CSS property to provide fallback contrast. Example: background: url(image.jpg); background-color: #000000; or use a semi-transparent background overlay.';
             $suggestion = 'Provide a solid background color as fallback when using background images with text overlay.';
+            $contrast_info = "Text: {$text_hex} on background image";
         } else if (strpos($bg_color, 'image') !== false) {
-            $description = "This text may have insufficient contrast over a background image (text: {$text_color}, background: {$bg_color}).";
+            $description = "This text may have insufficient contrast over a background image (text: {$text_hex}, background: {$bg_hex}).";
             $how_to_fix = 'Ensure adequate contrast by adding a background color overlay or text shadow. Test with a color contrast checker.';
             $suggestion = 'Add a background color overlay or increase text contrast when displaying text over images.';
+            $contrast_info = "Text: {$text_hex} on {$bg_hex}";
         } else {
-            $description = "This text has insufficient color contrast (text: {$text_color}, background: {$bg_color}).";
+            $description = "This text has insufficient color contrast (text: {$text_hex}, background: {$bg_hex}).";
             $how_to_fix = 'Modify the text color or background color to achieve the required contrast ratio. Use online contrast checkers to verify compliance.';
             $suggestion = 'Ensure color contrast ratio meets WCAG AA standards (4.5:1 for normal text, 3:1 for large text).';
+            $contrast_info = "Text: {$text_hex} on {$bg_hex}";
         }
-        
+
+        // Build enhanced HTML snippet with contrast details
+        $enhanced_snippet = $details['html_snippet'];
+        if (!empty($contrast_info)) {
+            $enhanced_snippet = "[Contrast: {$contrast_info}] " . $enhanced_snippet;
+        }
+
+        // Override element_details with enhanced snippet
+        $details['html_snippet'] = $enhanced_snippet;
+        $details['contrast_info'] = $contrast_info;
+        $details['text_color'] = $text_hex;
+        $details['bg_color'] = $bg_hex;
+
         $issues[] = [
             'type' => 'low_contrast',
             'severity' => 'medium',
@@ -1587,8 +1606,37 @@ class Accessibility_Checker {
             'wcag_level' => 'AA',
             'compliance_impact' => 'WARNING',
             'how_to_fix' => $how_to_fix,
-            'auto_fixable' => false
+            'auto_fixable' => false,
+            'contrast_details' => [
+                'text_color' => $text_hex,
+                'bg_color' => $bg_hex,
+                'info' => $contrast_info
+            ]
         ];
+    }
+
+    /**
+     * Convert a color value to hex format for readability
+     */
+    private function color_to_hex($color) {
+        if (empty($color) || strpos($color, 'image') !== false || strpos($color, 'unknown') !== false) {
+            return $color; // Return as-is for non-color values
+        }
+
+        // If already hex, return as-is
+        if (preg_match('/^#[0-9a-fA-F]{3,6}$/', $color)) {
+            return strtoupper($color);
+        }
+
+        // Parse rgb/rgba format
+        if (preg_match('/rgba?\((\d+),\s*(\d+),\s*(\d+)/', $color, $matches)) {
+            $r = intval($matches[1]);
+            $g = intval($matches[2]);
+            $b = intval($matches[3]);
+            return sprintf('#%02X%02X%02X', $r, $g, $b);
+        }
+
+        return $color; // Return original if can't parse
     }
     
     /**

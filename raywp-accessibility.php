@@ -3,7 +3,7 @@
  * Plugin Name: RayWP Accessibility Pro
  * Plugin URI: https://raywp.com
  * Description: Advanced accessibility toolkit with comprehensive ARIA support, form scanning, and WCAG compliance features.
- * Version: 1.0.1-20250825
+ * Version: 1.0.2-20260112
  * Author: Adam Rosenkoetter
  * Author URI: https://raywp.com
  * License: GPL v2 or later
@@ -17,7 +17,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('RAYWP_ACCESSIBILITY_VERSION', '1.0.1-20250825');
+define('RAYWP_ACCESSIBILITY_VERSION', '1.0.3-20260112g');
 define('RAYWP_ACCESSIBILITY_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('RAYWP_ACCESSIBILITY_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('RAYWP_ACCESSIBILITY_PLUGIN_BASENAME', plugin_basename(__FILE__));
