@@ -234,45 +234,68 @@ jQuery(document).ready(function($) {
         });
     });
     
-    // Run Full Scan
-    $(document).on('click', '#run-full-scan', function() {
-        const button = $(this);
-        const originalText = button.text();
-        
-        button.prop('disabled', true)
-            .html('Scanning... <span class="raywp-spinner"></span>');
-        
-        $.post(raywpAccessibility.ajaxurl, {
-            action: 'raywp_accessibility_run_full_scan',
-            nonce: raywpAccessibility.nonce
-        }, function(response) {
-            button.prop('disabled', false).text(originalText);
-            
-            if (response.success) {
-                const data = response.data;
-                
-                // Update the reports page with results
-                updateScanResults(data);
-                
-                let message = `Scan Complete!\nPages Scanned: ${data.pages_scanned}\nTotal Issues: ${data.total_issues}`;
-                
-                if (data.errors && data.errors.length > 0) {
-                    message += '\n\nErrors:\n' + data.errors.join('\n');
-                }
-                
-                // Debug info
-                console.log('Scan results:', data);
-                
-                alert(message);
-            } else {
-                alert('Scan failed: ' + (response.data || 'Unknown error'));
-            }
-        }).fail(function() {
-            button.prop('disabled', false).text(originalText);
-            alert('Scan request failed. Please try again.');
-        });
-    });
+    // Run Full Scan - DEPRECATED: Now handled by axe-integration.js with two-pass axe-core scanning
+    // The old PHP-based scan is replaced by browser-based axe-core scanning for accurate results.
+    // See axe-integration.js handleRunFullScan() for the new implementation.
+    // $(document).on('click', '#run-full-scan', function() { ... });
     
+    /**
+     * Reset server-side scan score to "--" while scan is in progress
+     */
+    function resetServerScanScore() {
+        const scoreContainer = $('#raywp-server-scan-score');
+        if (scoreContainer.length) {
+            scoreContainer.find('.raywp-server-score-value')
+                .text('--%')
+                .css('color', '#6c757d');
+        }
+    }
+
+    /**
+     * Update server-side scan score with actual value
+     * @param {number} score - The accessibility score (0-100)
+     */
+    function updateServerScanScore(score) {
+        const scoreContainer = $('#raywp-server-scan-score');
+        if (scoreContainer.length) {
+            // Determine color based on score
+            let color = '#dc3545'; // red for low scores
+            if (score >= 90) {
+                color = '#28a745'; // green
+            } else if (score >= 70) {
+                color = '#ffc107'; // yellow
+            }
+
+            scoreContainer.find('.raywp-server-score-value')
+                .text(score + '%')
+                .css('color', color);
+        }
+    }
+
+    /**
+     * Reset browser scan score to indicate it needs to be re-run
+     * Called after Run Full Scan completes to clear stale data
+     */
+    function resetBrowserScanScore() {
+        const scoreContainer = $('#raywp-browser-scan-score');
+        if (scoreContainer.length) {
+            // Reset to default "not scanned" state
+            scoreContainer.css({
+                'background': '#f8f9fa',
+                'border-color': '#dee2e6'
+            });
+            scoreContainer.find('.raywp-browser-score-value')
+                .text('--')
+                .css('color', '#6c757d');
+            scoreContainer.find('.raywp-browser-score-timestamp')
+                .text('Run "Check Score with Fixes" to update')
+                .css('color', '#6c757d');
+            // Also reset the label color
+            scoreContainer.find('div:first')
+                .css('color', '#6c757d');
+        }
+    }
+
     function updateScanResults(data) {
         // Update accessibility score
         $('.raywp-accessibility-score').text(data.accessibility_score + '%');

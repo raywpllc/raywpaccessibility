@@ -1,9 +1,10 @@
 /**
  * RayWP Accessibility - Axe Integration
- * Handles "Check Score With Fixes" functionality
+ * Handles unified accessibility scanning with before/after comparison
  *
  * This script uses real browser-based axe-core scanning via iframes
  * to accurately detect accessibility issues in the rendered DOM.
+ * It performs a two-pass scan: baseline (without fixes) then with fixes applied.
  */
 
 (function($) {
@@ -12,19 +13,18 @@
     // Configuration
     const CONFIG = {
         selectors: {
-            checkFixedScoreBtn: '#check-fixed-score',
             runFullScanBtn: '#run-full-scan',
+            checkFixedScoreBtn: '#check-fixed-score', // Will be hidden
             scanResultsContainer: '.raywp-scan-results',
-            liveScoreDisplay: '.raywp-live-score-value',
-            originalScoreDisplay: '.raywp-original-score-value',
+            baselineScoreDisplay: '.raywp-baseline-score-value',
+            fixedScoreDisplay: '.raywp-fixed-score-value',
             progressContainer: '#scan-progress-container',
             fixedIssuesContainer: '#fixed-issues-breakdown',
             remainingIssuesContainer: '#remaining-issues-breakdown'
         },
         ajaxActions: {
             getPagesList: 'raywp_accessibility_get_pages_list',
-            processAxeResults: 'raywp_accessibility_process_axe_results',
-            storeLiveScore: 'raywp_accessibility_store_live_score'
+            saveComparisonScan: 'raywp_accessibility_save_comparison_scan'
         }
     };
 
@@ -35,8 +35,8 @@
      * Initialize the axe integration
      */
     function init() {
-        // Show the "Check Score With Fixes" button
-        $(CONFIG.selectors.checkFixedScoreBtn).show();
+        // Hide the old "Check Score With Fixes" button - we now use a single unified scan
+        $(CONFIG.selectors.checkFixedScoreBtn).hide();
 
         // Initialize the iframe scanner
         if (window.RayWPIframeScanner) {
@@ -57,8 +57,91 @@
      * Bind event handlers
      */
     function bindEvents() {
-        // Check Score With Fixes button click
-        $(document).on('click', CONFIG.selectors.checkFixedScoreBtn, handleCheckFixedScore);
+        // Run Full Scan button - now uses axe-core two-pass scanning
+        $(document).on('click', CONFIG.selectors.runFullScanBtn, handleRunFullScan);
+    }
+
+    /**
+     * Handle "Run Full Scan" button click (renamed from handleCheckFixedScore)
+     * Uses browser-based axe-core scanning via iframes with two passes:
+     * 1. Baseline scan (without fixes) to detect all issues
+     * 2. Fixed scan (with fixes) to see remaining issues
+     */
+    async function handleRunFullScan(e) {
+        e.preventDefault();
+
+        if (!scanner) {
+            showErrorMessage('Scanner not initialized. Please refresh the page and try again.');
+            return;
+        }
+
+        const $button = $(this);
+        const originalText = $button.text();
+
+        // Disable button and show progress
+        $button.prop('disabled', true);
+        showProgress('Getting list of pages to scan...', 0, 1, 0);
+
+        try {
+            // Step 1: Get list of pages to scan from server
+            const pages = await getPagesList();
+
+            if (!pages || pages.length === 0) {
+                throw new Error('No pages found to scan');
+            }
+
+            showProgress(`Found ${pages.length} pages. Starting two-pass axe-core scan...`, 2, 1, 0);
+
+            // Step 2: Run the full comparison scan (baseline + with fixes)
+            const comparisonResults = await scanner.runFullComparisonScan(pages, (phase, current, total, title, status) => {
+                const phaseLabel = phase === 1 ? 'Baseline (without fixes)' : 'With fixes applied';
+                const phasePercent = phase === 1 ? 0 : 50;
+                const percent = phasePercent + ((current / total) * 45);
+
+                let message = `Phase ${phase}/2: ${phaseLabel}`;
+                if (current > 0) {
+                    message += ` - Page ${current}/${total}: ${title}`;
+                    if (status && status !== 'scanning') {
+                        message += ` (${status})`;
+                    }
+                }
+                showProgress(message, percent, phase, current);
+            });
+
+            showProgress('Processing results...', 95, 2, pages.length);
+
+            // DEBUG: Log comparison results
+            console.group('RayWP Accessibility Comparison Scan Debug');
+            console.log('Comparison Results:', comparisonResults);
+            console.log('Baseline Score:', comparisonResults.improvement.baselineScore);
+            console.log('Fixed Score:', comparisonResults.improvement.fixedScore);
+            console.log('Issues Fixed:', comparisonResults.improvement.issuesFixed);
+            console.groupEnd();
+
+            // Step 3: Save results to server
+            showProgress('Saving results...', 98, 2, pages.length);
+            await saveComparisonScan(comparisonResults);
+
+            hideProgress();
+            $button.prop('disabled', false).text(originalText);
+
+            // Display results
+            displayComparisonResults(comparisonResults);
+            showSuccessMessage(`Scan complete! Scanned ${pages.length} pages twice (baseline + with fixes).`);
+
+            // Reload page after brief delay to show updated UI
+            setTimeout(() => {
+                if (confirm('Scan complete! Reload page to see updated results?')) {
+                    window.location.reload();
+                }
+            }, 500);
+
+        } catch (error) {
+            hideProgress();
+            $button.prop('disabled', false).text(originalText);
+            showErrorMessage('Scan failed: ' + error.message);
+            console.error('Scan error:', error);
+        }
     }
 
     /**
@@ -165,7 +248,7 @@
     }
 
     /**
-     * Send axe-core results to server for processing
+     * Send axe-core results to server for processing (legacy - for single scan)
      */
     function processAxeResults(convertedResults, rawResults) {
         return new Promise((resolve, reject) => {
@@ -195,6 +278,220 @@
                 }
             });
         });
+    }
+
+    /**
+     * Save comparison scan results (baseline + with fixes) to server
+     */
+    function saveComparisonScan(comparisonResults) {
+        return new Promise((resolve, reject) => {
+            $.ajax({
+                url: raywpAccessibility.ajaxurl,
+                type: 'POST',
+                data: {
+                    action: CONFIG.ajaxActions.saveComparisonScan,
+                    nonce: raywpAccessibility.nonce,
+                    baseline: JSON.stringify({
+                        score: comparisonResults.improvement.baselineScore,
+                        total_issues: comparisonResults.baseline.totalViolations,
+                        pages_scanned: comparisonResults.baseline.pages.length,
+                        violations_by_type: comparisonResults.baseline.violationsByType,
+                        duration: comparisonResults.baseline.duration
+                    }),
+                    with_fixes: JSON.stringify({
+                        score: comparisonResults.improvement.fixedScore,
+                        total_issues: comparisonResults.withFixes.totalViolations,
+                        pages_scanned: comparisonResults.withFixes.pages.length,
+                        violations_by_type: comparisonResults.withFixes.violationsByType,
+                        duration: comparisonResults.withFixes.duration
+                    }),
+                    improvement: JSON.stringify(comparisonResults.improvement)
+                },
+                success: function(response) {
+                    if (response.success) {
+                        resolve(response.data);
+                    } else {
+                        // Handle error response - could be string or object
+                        let errorMsg = 'Failed to save comparison results';
+                        if (response.data) {
+                            if (typeof response.data === 'string') {
+                                errorMsg = response.data;
+                            } else if (response.data.message) {
+                                errorMsg = response.data.message;
+                            } else {
+                                errorMsg = JSON.stringify(response.data);
+                            }
+                        }
+                        console.error('Save comparison scan failed:', response);
+                        reject(new Error(errorMsg));
+                    }
+                },
+                error: function(xhr, status, error) {
+                    reject(new Error('AJAX error: ' + error));
+                }
+            });
+        });
+    }
+
+    /**
+     * Display comparison scan results (before/after)
+     */
+    function displayComparisonResults(comparisonResults) {
+        const { baseline, withFixes, improvement } = comparisonResults;
+
+        // Build comparison display HTML
+        let html = '<div class="raywp-comparison-results" style="margin: 20px 0;">';
+
+        // Score comparison header
+        html += '<div class="raywp-score-comparison" style="display: flex; align-items: center; justify-content: center; gap: 40px; padding: 30px; background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 12px; margin-bottom: 20px;">';
+
+        // Before score
+        const beforeColor = getScoreColor(improvement.baselineScore);
+        html += '<div class="before-score" style="text-align: center;">';
+        html += '<div style="font-size: 14px; color: #666; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px;">Before Auto-Fixes</div>';
+        html += '<div style="font-size: 48px; font-weight: bold; color: ' + beforeColor + ';">' + improvement.baselineScore + '%</div>';
+        html += '<div style="font-size: 13px; color: #888;">(' + baseline.totalViolations + ' issues)</div>';
+        html += '</div>';
+
+        // Arrow
+        html += '<div style="font-size: 32px; color: #28a745;">→</div>';
+
+        // After score
+        const afterColor = getScoreColor(improvement.fixedScore);
+        html += '<div class="after-score" style="text-align: center;">';
+        html += '<div style="font-size: 14px; color: #666; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px;">After Auto-Fixes</div>';
+        html += '<div style="font-size: 48px; font-weight: bold; color: ' + afterColor + ';">' + improvement.fixedScore + '%</div>';
+        html += '<div style="font-size: 13px; color: #888;">(' + withFixes.totalViolations + ' remaining)</div>';
+        html += '</div>';
+
+        html += '</div>';
+
+        // Improvement summary
+        if (improvement.issuesFixed > 0) {
+            html += '<div class="raywp-improvement-summary" style="text-align: center; padding: 20px; background: #d4edda; border-radius: 8px; border: 1px solid #c3e6cb;">';
+            html += '<span style="font-size: 24px;">✅</span> ';
+            html += '<strong style="font-size: 18px; color: #155724;">' + improvement.issuesFixed + ' issues auto-fixed</strong>';
+            html += '<span style="font-size: 18px; color: #28a745;"> (+' + improvement.scoreDiff + '% improvement)</span>';
+            html += '</div>';
+        }
+
+        // Issue type breakdown - what was fixed
+        if (improvement.issuesFixed > 0) {
+            html += '<div class="raywp-fixed-breakdown" style="margin-top: 20px;">';
+            html += '<h4 style="margin-bottom: 10px;">Issues Fixed by Auto-Fixes</h4>';
+            html += buildIssueComparisonTable(baseline.violationsByType, withFixes.violationsByType);
+            html += '</div>';
+        }
+
+        // Remaining issues requiring manual attention
+        if (withFixes.totalViolations > 0) {
+            html += '<div class="raywp-remaining-issues" style="margin-top: 20px;">';
+            html += '<h4 style="margin-bottom: 10px; color: #856404;">Issues Requiring Manual Attention (' + withFixes.totalViolations + ')</h4>';
+            html += buildRemainingIssuesTable(withFixes.violationsByType);
+            html += '</div>';
+        }
+
+        html += '</div>';
+
+        // Find or create results container
+        let $container = $(CONFIG.selectors.scanResultsContainer);
+        if ($container.length === 0) {
+            $container = $('<div class="raywp-scan-results"></div>');
+            $(CONFIG.selectors.runFullScanBtn).closest('div').after($container);
+        }
+
+        $container.html(html);
+    }
+
+    /**
+     * Get color based on score value
+     */
+    function getScoreColor(score) {
+        if (score >= 90) return '#28a745';
+        if (score >= 70) return '#ffc107';
+        return '#dc3545';
+    }
+
+    /**
+     * Build comparison table showing before/after issue counts
+     */
+    function buildIssueComparisonTable(beforeViolations, afterViolations) {
+        // Get all unique issue types
+        const allTypes = new Set([
+            ...Object.keys(beforeViolations || {}),
+            ...Object.keys(afterViolations || {})
+        ]);
+
+        let html = '<table class="wp-list-table widefat fixed striped" style="background: #fff;">';
+        html += '<thead><tr><th>Issue Type</th><th>Before</th><th>After</th><th>Fixed</th></tr></thead>';
+        html += '<tbody>';
+
+        let totalBefore = 0;
+        let totalAfter = 0;
+        let totalFixed = 0;
+
+        allTypes.forEach(function(type) {
+            const before = (beforeViolations && beforeViolations[type]) ? beforeViolations[type].count || 0 : 0;
+            const after = (afterViolations && afterViolations[type]) ? afterViolations[type].count || 0 : 0;
+            const fixed = before - after;
+
+            totalBefore += before;
+            totalAfter += after;
+            totalFixed += Math.max(0, fixed);
+
+            if (fixed > 0) {
+                const displayType = formatIssueType(type);
+                html += '<tr>';
+                html += '<td>' + escapeHtml(displayType) + '</td>';
+                html += '<td>' + before + '</td>';
+                html += '<td>' + after + '</td>';
+                html += '<td style="color: #28a745; font-weight: bold;">-' + fixed + '</td>';
+                html += '</tr>';
+            }
+        });
+
+        html += '</tbody>';
+        html += '<tfoot style="background: #e9ecef;">';
+        html += '<tr><th>Total</th><th>' + totalBefore + '</th><th>' + totalAfter + '</th><th style="color: #28a745; font-weight: bold;">-' + totalFixed + '</th></tr>';
+        html += '</tfoot>';
+        html += '</table>';
+
+        return html;
+    }
+
+    /**
+     * Build table showing remaining issues that need manual attention
+     */
+    function buildRemainingIssuesTable(violations) {
+        if (!violations || Object.keys(violations).length === 0) {
+            return '<p>No remaining issues found.</p>';
+        }
+
+        let html = '<table class="wp-list-table widefat fixed striped" style="background: #fff;">';
+        html += '<thead><tr><th>Issue Type</th><th>Severity</th><th>Count</th><th>Help</th></tr></thead>';
+        html += '<tbody>';
+
+        Object.keys(violations).forEach(function(type) {
+            const issue = violations[type];
+            const displayType = formatIssueType(type);
+            const severityBadge = getSeverityBadge(issue.severity || 'moderate');
+
+            html += '<tr>';
+            html += '<td>' + escapeHtml(displayType) + '</td>';
+            html += '<td>' + severityBadge + '</td>';
+            html += '<td>' + (issue.count || 1) + '</td>';
+            html += '<td>';
+            if (issue.helpUrl) {
+                html += '<a href="' + escapeHtml(issue.helpUrl) + '" target="_blank" rel="noopener">Learn more</a>';
+            } else {
+                html += '-';
+            }
+            html += '</td>';
+            html += '</tr>';
+        });
+
+        html += '</tbody></table>';
+        return html;
     }
 
     /**
@@ -493,22 +790,47 @@
     }
 
     /**
-     * Show progress indicator
+     * Show progress indicator with two-phase support
      */
-    function showProgress(message, percent) {
+    function showProgress(message, percent, phase, current) {
         let $container = $(CONFIG.selectors.progressContainer);
 
         if ($container.length === 0) {
             $container = $('<div id="scan-progress-container" style="margin: 15px 0; padding: 15px; background: #e7f3ff; border-radius: 8px; border: 1px solid #b8daff;"></div>');
-            $(CONFIG.selectors.checkFixedScoreBtn).after($container);
+            // Try to insert after the run full scan button first, fall back to check fixed score button
+            const $runFullScan = $(CONFIG.selectors.runFullScanBtn);
+            if ($runFullScan.length > 0) {
+                $runFullScan.after($container);
+            } else {
+                $(CONFIG.selectors.checkFixedScoreBtn).after($container);
+            }
         }
 
+        // Build phase indicator if we have phase info
+        let phaseIndicatorHtml = '';
+        if (phase && phase >= 1 && phase <= 2) {
+            const phase1Color = phase >= 1 ? '#007cba' : '#dee2e6';
+            const phase2Color = phase >= 2 ? '#28a745' : '#dee2e6';
+            phaseIndicatorHtml = '<div class="phase-indicators" style="display: flex; gap: 10px; margin-bottom: 10px;">';
+            phaseIndicatorHtml += '<div style="flex: 1; padding: 8px; background: ' + (phase === 1 ? '#e7f3ff' : '#f8f9fa') + '; border-radius: 4px; border: 2px solid ' + phase1Color + '; text-align: center;">';
+            phaseIndicatorHtml += '<small style="color: ' + phase1Color + '; font-weight: ' + (phase === 1 ? 'bold' : 'normal') + ';">Phase 1: Baseline</small>';
+            phaseIndicatorHtml += '</div>';
+            phaseIndicatorHtml += '<div style="flex: 1; padding: 8px; background: ' + (phase === 2 ? '#d4edda' : '#f8f9fa') + '; border-radius: 4px; border: 2px solid ' + phase2Color + '; text-align: center;">';
+            phaseIndicatorHtml += '<small style="color: ' + phase2Color + '; font-weight: ' + (phase === 2 ? 'bold' : 'normal') + ';">Phase 2: With Fixes</small>';
+            phaseIndicatorHtml += '</div>';
+            phaseIndicatorHtml += '</div>';
+        }
+
+        // Progress bar color based on phase
+        const barColor = phase === 2 ? '#28a745' : '#007cba';
+
         let progressHtml = '<div class="scan-progress">';
+        progressHtml += phaseIndicatorHtml;
         progressHtml += '<p style="margin: 0 0 10px 0;"><strong>' + escapeHtml(message) + '</strong></p>';
         progressHtml += '<div class="progress-bar-container" style="background: #dee2e6; border-radius: 4px; height: 20px; overflow: hidden;">';
-        progressHtml += '<div class="progress-bar" style="background: #007cba; height: 100%; width: ' + percent + '%; transition: width 0.3s;"></div>';
+        progressHtml += '<div class="progress-bar" style="background: ' + barColor + '; height: 100%; width: ' + percent + '%; transition: width 0.3s;"></div>';
         progressHtml += '</div>';
-        progressHtml += '<p style="margin: 10px 0 0 0; font-size: 12px; color: #666;">Using axe-core to scan the actual rendered pages...</p>';
+        progressHtml += '<p style="margin: 10px 0 0 0; font-size: 12px; color: #666;">Two-pass axe-core scan: baseline (no fixes) → with fixes applied</p>';
         progressHtml += '</div>';
 
         $container.html(progressHtml).show();

@@ -111,7 +111,8 @@ class Plugin {
         add_action('wp_ajax_raywp_accessibility_process_axe_results', [$this, 'ajax_process_axe_results']);
         add_action('wp_ajax_raywp_accessibility_get_css_overrides', [$this, 'ajax_get_css_overrides']);
         add_action('wp_ajax_raywp_accessibility_clear_scan_data', [$this, 'ajax_clear_scan_data']);
-        
+        add_action('wp_ajax_raywp_accessibility_save_comparison_scan', [$this, 'ajax_save_comparison_scan']);
+
         // Test AJAX handler
         add_action('wp_ajax_raywp_accessibility_test', [$this, 'ajax_test']);
         
@@ -134,6 +135,12 @@ class Plugin {
      * Start output buffering to process entire page
      */
     public function start_output_buffering() {
+        // Skip auto-fixes if scanning for baseline (no-fix) comparison
+        // This allows axe-core to scan the page without plugin fixes applied
+        if (isset($_GET['raywp_no_fixes']) && $_GET['raywp_no_fixes'] === '1') {
+            return; // Don't apply auto-fixes for this request
+        }
+
         if (!is_admin() && !wp_doing_ajax()) {
             ob_start([$this->components['dom_processor'], 'process_output']);
         }
@@ -322,9 +329,18 @@ class Plugin {
             
             // Clear any cached data to ensure fresh results
             $this->clear_scan_caches();
-            
+
             // Clear axe-core results from "Check Score with Fixes" to ensure manual issues are hidden
             delete_option('raywp_accessibility_axe_results');
+
+            // Clear browser scan score data - it needs to be re-run after a new full scan
+            delete_option('raywp_accessibility_live_score');
+            delete_option('raywp_accessibility_live_score_timestamp');
+            delete_option('raywp_accessibility_scan_with_fixes_results');
+
+            // Clear server-side scan score (will be set again when scan completes)
+            delete_option('raywp_accessibility_server_scan_score');
+            delete_option('raywp_accessibility_server_scan_timestamp');
             
             // Ensure database table exists before scanning with correct structure
             $this->recreate_scan_results_table();
@@ -416,7 +432,12 @@ class Plugin {
             $score = max(0, round(100 - $avg_weight));
 
             error_log("RayWP Accessibility: Calculated score from memory: $score (total_weight: $total_weight, pages: $pages_count, avg: $avg_weight)");
-            
+
+            // Save the server-side scan score to the database so it persists on page refresh
+            update_option('raywp_accessibility_server_scan_score', $score);
+            update_option('raywp_accessibility_server_scan_timestamp', current_time('mysql'));
+            error_log("RayWP Accessibility: Saved server scan score to database: $score");
+
             error_log('RayWP Accessibility: Preparing response...');
             $response_data = [
                 'message' => 'Scan completed successfully',
@@ -426,7 +447,7 @@ class Plugin {
                 'results' => $results,
                 'timestamp' => current_time('mysql')
             ];
-            
+
             error_log('RayWP Accessibility: Sending success response...');
             wp_send_json_success($response_data);
             
@@ -952,7 +973,83 @@ class Plugin {
             wp_send_json_error('Failed to clear scan data: ' . $e->getMessage());
         }
     }
-    
+
+    /**
+     * AJAX handler for saving comparison scan results (baseline vs with-fixes)
+     * Stores both scans using axe-core for accurate before/after comparison
+     */
+    public function ajax_save_comparison_scan() {
+        check_ajax_referer('raywp_accessibility_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['message' => 'Unauthorized']);
+            return;
+        }
+
+        // Get the JSON results from the request
+        $baseline_json = isset($_POST['baseline']) ? wp_unslash($_POST['baseline']) : '';
+        $with_fixes_json = isset($_POST['with_fixes']) ? wp_unslash($_POST['with_fixes']) : '';
+        $improvement_json = isset($_POST['improvement']) ? wp_unslash($_POST['improvement']) : '';
+
+        if (empty($baseline_json) || empty($with_fixes_json)) {
+            wp_send_json_error(['message' => 'Missing baseline or with_fixes data']);
+            return;
+        }
+
+        $baseline = json_decode($baseline_json, true);
+        $with_fixes = json_decode($with_fixes_json, true);
+        $improvement = json_decode($improvement_json, true);
+
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            wp_send_json_error(['message' => 'Invalid JSON in results']);
+            return;
+        }
+
+        // Store the comparison scan results
+        $scan_data = [
+            'baseline' => [
+                'score' => $improvement['baselineScore'] ?? 0,
+                'total_issues' => $improvement['baselineIssues'] ?? 0,
+                'violations_by_type' => $baseline['violationsByType'] ?? [],
+                'contrast_patterns' => $baseline['contrastPatterns'] ?? [],
+                'pages_scanned' => count($baseline['pages'] ?? []),
+                'timestamp' => current_time('mysql')
+            ],
+            'with_fixes' => [
+                'score' => $improvement['fixedScore'] ?? 0,
+                'total_issues' => $improvement['fixedIssues'] ?? 0,
+                'violations_by_type' => $with_fixes['violationsByType'] ?? [],
+                'contrast_patterns' => $with_fixes['contrastPatterns'] ?? [],
+                'pages_scanned' => count($with_fixes['pages'] ?? []),
+                'timestamp' => current_time('mysql')
+            ],
+            'improvement' => [
+                'score_diff' => $improvement['scoreDiff'] ?? 0,
+                'issues_fixed' => $improvement['issuesFixed'] ?? 0,
+                'percent_improvement' => $improvement['percentImprovement'] ?? 0,
+                'fixed_by_type' => $improvement['fixedByType'] ?? []
+            ],
+            'scan_timestamp' => current_time('mysql')
+        ];
+
+        // Save to WordPress options
+        update_option('raywp_accessibility_comparison_scan', $scan_data);
+
+        // Also update the individual score options for display
+        update_option('raywp_accessibility_baseline_score', $scan_data['baseline']['score']);
+        update_option('raywp_accessibility_baseline_timestamp', $scan_data['baseline']['timestamp']);
+        update_option('raywp_accessibility_fixed_score', $scan_data['with_fixes']['score']);
+        update_option('raywp_accessibility_fixed_timestamp', $scan_data['with_fixes']['timestamp']);
+
+        wp_send_json_success([
+            'message' => 'Comparison scan saved successfully',
+            'baseline_score' => $scan_data['baseline']['score'],
+            'fixed_score' => $scan_data['with_fixes']['score'],
+            'issues_fixed' => $scan_data['improvement']['issues_fixed'],
+            'score_improvement' => $scan_data['improvement']['score_diff']
+        ]);
+    }
+
     /**
      * AJAX handler for toggling checker widget
      */
@@ -1637,60 +1734,70 @@ class Plugin {
 
         // Determine "fixed" issues: auto-fixable types from server scan that aren't in axe scan
         // These are issues that the DOM processor likely fixed
-        $auto_fixable_types = [
+
+        // Page-level fixes are applied to EVERY page, so count = pages_scanned
+        $page_level_fixes = [
+            'missing_skip_links', 'bypass',                    // Skip links added to every page
+            'missing_main_landmark', 'landmark-one-main',      // Main landmark on every page
+            'missing_lang', 'document_language', 'html-has-lang', // Language on every page
+            'page-has-heading-one', 'missing_h1',              // H1 on every page
+        ];
+
+        // Element-level fixes vary per page, estimate average per page
+        $element_level_fixes = [
             'empty_alt_text', 'image_missing_alt', 'image-alt',
-            'missing_lang', 'document_language', 'html-has-lang',
             'form_missing_labels', 'label', 'label-content-name-mismatch',
-            'missing_skip_links', 'bypass',
-            'missing_main_landmark', 'landmark-one-main', 'region',
             'heading_hierarchy_skip', 'heading-order', 'empty-heading',
             'button_missing_text', 'button-name',
             'link_no_accessible_name', 'link-name', 'empty_link',
             'frame-title', 'iframe_missing_title', 'missing_iframe_title',
-            'page-has-heading-one', 'missing_h1',
             'presentation-role-conflict', 'aria_presentation_conflict',
             'duplicate-id', 'duplicate_ids', 'duplicate-id-active', 'duplicate-id-aria',
             'aria-hidden-focus', 'aria-input-field-name', 'aria-required-children',
             'aria-required-parent', 'aria-roles', 'aria-valid-attr-value', 'aria-valid-attr',
-            'list', 'listitem', 'definition-list', 'dlitem'
+            'list', 'listitem', 'definition-list', 'dlitem', 'region'
         ];
 
-        foreach ($auto_fixable_types as $fix_type) {
-            // If this type was in server scan but NOT found by axe-core, it was likely fixed
-            if (in_array($fix_type, $server_scan_issues) && !isset($axe_found_types[$fix_type])) {
-                // Create a synthetic "fixed" issue entry
-                $fixed_issues[] = [
-                    'type' => $fix_type,
-                    'severity' => 'medium',
-                    'fix_status' => 'auto_fixed',
-                    'message' => $admin_instance->get_issue_description($fix_type) . ' - Fixed by DOM processor',
-                    'synthetic' => true
-                ];
-            }
-        }
+        $all_auto_fixable_types = array_merge($page_level_fixes, $element_level_fixes);
+        $pages_scanned = max(1, $results['pages_scanned'] ?? 1);
+        $fixed_instance_count = 0;
 
-        // Also mark auto-fixable types as "fixed" based on what the plugin CAN fix
-        // even if they weren't in the server scan (they would have been caught)
-        foreach ($auto_fixable_types as $fix_type) {
+        foreach ($all_auto_fixable_types as $fix_type) {
+            // Check if this fix type is enabled and NOT found in axe-core results
             if ($admin_instance->is_auto_fixable($fix_type) && !isset($axe_found_types[$fix_type])) {
-                // Don't duplicate if already added from server scan
-                $already_added = false;
-                foreach ($fixed_issues as $fi) {
-                    if ($fi['type'] === $fix_type) {
-                        $already_added = true;
-                        break;
-                    }
+                // Determine instance count based on fix type
+                if (in_array($fix_type, $page_level_fixes)) {
+                    // Page-level fixes: applied to every page
+                    $instance_count = $pages_scanned;
+                } else {
+                    // Element-level fixes: estimate 1 per type (conservative)
+                    // In reality, could be more per page, but we don't have that data
+                    $instance_count = 1;
                 }
-                if (!$already_added) {
+
+                // Create fix entries for each instance
+                for ($i = 0; $i < $instance_count; $i++) {
                     $fixed_issues[] = [
                         'type' => $fix_type,
                         'severity' => 'medium',
                         'fix_status' => 'auto_fixed',
-                        'message' => $admin_instance->get_issue_description($fix_type) . ' - Auto-fix enabled',
-                        'synthetic' => true
+                        'message' => $admin_instance->get_issue_description($fix_type) . ' - Fixed by DOM processor',
+                        'synthetic' => true,
+                        'page_instance' => $i + 1
                     ];
                 }
+                $fixed_instance_count += $instance_count;
             }
+        }
+
+        // Track unique fix types for display purposes
+        $unique_fix_types = [];
+        foreach ($fixed_issues as $issue) {
+            $type = $issue['type'];
+            if (!isset($unique_fix_types[$type])) {
+                $unique_fix_types[$type] = 0;
+            }
+            $unique_fix_types[$type]++;
         }
 
         // Note: To show truly "fixed" issues, we would need to:
@@ -1699,7 +1806,16 @@ class Plugin {
         // 3. The difference = fixed issues
         // The server-side ajax_scan_with_fixes() does this dual scan approach.
 
+        // Extract contrast patterns from the results (sent from JavaScript)
+        $contrast_patterns = $results['contrast_patterns'] ?? [];
+        $contrast_pattern_count = count($contrast_patterns);
+        $contrast_total_instances = 0;
+        foreach ($contrast_patterns as $pattern) {
+            $contrast_total_instances += $pattern['count'] ?? 0;
+        }
+
         // Calculate scores using severity-weighted scoring, normalized per page
+        // NEW: Use pattern-based scoring for contrast issues (diminishing returns)
         $severity_weights = [
             'critical' => 10,
             'high' => 5,
@@ -1712,11 +1828,66 @@ class Plugin {
 
         $pages_scanned = max(1, $results['pages_scanned'] ?? 1); // Avoid division by zero
 
+        // Helper function to calculate pattern-based scoring
+        // Uses log scale so 237 instances of 1 pattern ≈ weight of ~10-15 instances
+        $calculate_pattern_weight = function($issues, $contrast_patterns) use ($severity_weights) {
+            $total_weight = 0;
+            $contrast_issues = [];
+            $non_contrast_issues = [];
+
+            // Separate contrast issues from other issues
+            foreach ($issues as $issue) {
+                $type = $issue['type'] ?? '';
+                if ($type === 'low_contrast' || $type === 'low_contrast_enhanced' ||
+                    $type === 'color-contrast' || $type === 'color-contrast-enhanced') {
+                    $contrast_issues[] = $issue;
+                } else {
+                    $non_contrast_issues[] = $issue;
+                }
+            }
+
+            // Score non-contrast issues normally
+            foreach ($non_contrast_issues as $issue) {
+                $severity = $issue['severity'] ?? 'medium';
+                $total_weight += $severity_weights[$severity] ?? 3;
+            }
+
+            // Score contrast issues by PATTERN, not by instance
+            // This reflects "effort to fix" - one CSS change fixes all instances of a pattern
+            if (!empty($contrast_patterns)) {
+                foreach ($contrast_patterns as $pattern) {
+                    $instance_count = $pattern['count'] ?? 1;
+                    $impact = $pattern['impact'] ?? 'serious';
+                    $base_weight = $severity_weights[$impact] ?? 5;
+
+                    // Diminishing returns: log10 scale
+                    // 1 instance = 1x weight
+                    // 10 instances = 1.5x weight
+                    // 100 instances = 2x weight
+                    // 237 instances = 2.19x weight
+                    $instance_factor = 1 + (log10(max(1, $instance_count)) * 0.5);
+                    $pattern_weight = $base_weight * $instance_factor;
+
+                    $total_weight += $pattern_weight;
+                }
+            } else {
+                // Fallback: if no pattern data, count contrast issues normally
+                foreach ($contrast_issues as $issue) {
+                    $severity = $issue['severity'] ?? 'medium';
+                    $total_weight += $severity_weights[$severity] ?? 3;
+                }
+            }
+
+            return $total_weight;
+        };
+
         // Original score = all issues (found + fixed)
         // This represents what the score WOULD be without auto-fixes
+        // For original score, count ALL issues at full weight (no pattern optimization)
+        // This shows the "real" impact of having 237 contrast issues, even if they share patterns
         $original_weight = 0;
 
-        // Add weight for issues currently found
+        // Add weight for ALL issues currently found - each instance counts fully
         foreach ($all_issues as $issue) {
             $severity = $issue['severity'] ?? 'medium';
             $original_weight += $severity_weights[$severity] ?? 3;
@@ -1734,13 +1905,9 @@ class Plugin {
 
         // Fixed score = only issues that STILL exist (remaining + unfixable)
         // This represents the current state with auto-fixes active
-        $fixed_weight = 0;
-        // Include both remaining issues (not auto-fixable) and unfixable issues (auto-fix failed)
+        // Use pattern-based scoring for contrast issues
         $all_remaining = array_merge($remaining_issues, $unfixable_issues);
-        foreach ($all_remaining as $issue) {
-            $severity = $issue['severity'] ?? 'medium';
-            $fixed_weight += $severity_weights[$severity] ?? 3;
-        }
+        $fixed_weight = $calculate_pattern_weight($all_remaining, $contrast_patterns);
         // Normalize by pages scanned
         $fixed_avg_weight = $fixed_weight / $pages_scanned;
         $fixed_score = max(0, round(100 - $fixed_avg_weight));
@@ -1786,19 +1953,37 @@ class Plugin {
             'fixed_score' => $fixed_score,
             'pages_scanned' => $results['pages_scanned'] ?? 0,
             'total_issues' => count($all_issues),
-            'fixed_count' => count($fixed_issues),           // Issues that DOM processor auto-fixed
+            'fixed_count' => count($fixed_issues),           // Total fix INSTANCES (e.g., skip links x 20 pages)
+            'fixed_types_count' => count($unique_fix_types), // Number of unique fix TYPES
+            'fixed_by_type' => $unique_fix_types,            // Fix types with instance counts
             'remaining_count' => count($remaining_issues),   // Not auto-fixable, need manual attention
             'unfixable_count' => count($unfixable_issues),   // Auto-fixable but fix didn't work
             'issue_breakdown' => [
                 'detected' => array_merge($all_issues, $fixed_issues), // All issues (found + fixed) for comparison
                 'fixed' => $fixed_issues,         // Issues resolved by auto-fixes
+                'fixed_summary' => $unique_fix_types, // Summary by type with counts
                 'remaining' => $remaining_issues, // Not auto-fixable, need manual attention
                 'unfixable' => $unfixable_issues  // Auto-fixable but fix didn't work
+            ],
+            // NEW: Contrast patterns for grouped display
+            'contrast_patterns' => $contrast_patterns,
+            'contrast_summary' => [
+                'pattern_count' => $contrast_pattern_count,
+                'total_instances' => $contrast_total_instances,
+                'scoring_note' => $contrast_pattern_count > 0
+                    ? sprintf(
+                        '%d contrast pattern%s affecting %d element%s. Score uses pattern-based calculation (1 CSS fix per pattern).',
+                        $contrast_pattern_count,
+                        $contrast_pattern_count !== 1 ? 's' : '',
+                        $contrast_total_instances,
+                        $contrast_total_instances !== 1 ? 's' : ''
+                    )
+                    : 'No contrast issues found.'
             ],
             'details' => $page_details,
             'scan_type' => 'axe-core-iframe',
             'timestamp' => current_time('mysql'),
-            'scan_note' => 'Compares issues found with fixes active against auto-fixable issue types to determine what was fixed.'
+            'scan_note' => 'Page-level fixes (skip links, main landmark, H1, language) counted once per page scanned. Contrast issues grouped by color pattern for scoring.'
         ];
 
         // Store results for persistence

@@ -46,9 +46,10 @@
          * Scan a single page
          * @param {string} url - The URL to scan
          * @param {function} progressCallback - Optional callback for progress updates
+         * @param {boolean} applyFixes - Whether to apply auto-fixes (default: true)
          * @returns {Promise<Object>} - Scan results
          */
-        async scanPage(url, progressCallback = null) {
+        async scanPage(url, progressCallback = null, applyFixes = true) {
             if (this.isScanning) {
                 throw new Error('Scanner is already running');
             }
@@ -71,8 +72,8 @@
                     progressCallback('Loading page...');
                 }
 
-                // Load the page
-                await this.loadPage(iframe, url);
+                // Load the page (with or without fixes based on applyFixes parameter)
+                await this.loadPage(iframe, url, applyFixes);
 
                 if (progressCallback) {
                     progressCallback('Running accessibility scan...');
@@ -119,9 +120,10 @@
          * Load a page into an iframe
          * @param {HTMLIFrameElement} iframe - The iframe element
          * @param {string} url - The URL to load
+         * @param {boolean} applyFixes - Whether to apply auto-fixes (default: true)
          * @returns {Promise<void>}
          */
-        loadPage(iframe, url) {
+        loadPage(iframe, url, applyFixes = true) {
             return new Promise((resolve, reject) => {
                 const timeout = setTimeout(() => {
                     reject(new Error('Page load timeout'));
@@ -142,6 +144,11 @@
                 const scanUrl = new URL(url);
                 scanUrl.searchParams.set('raywp_iframe_scan', '1');
                 scanUrl.searchParams.set('_', Date.now());
+
+                // Add parameter to disable auto-fixes for baseline scanning
+                if (!applyFixes) {
+                    scanUrl.searchParams.set('raywp_no_fixes', '1');
+                }
 
                 iframe.src = scanUrl.toString();
             });
@@ -267,19 +274,119 @@
         }
 
         /**
+         * Extract contrast pattern info from axe-core's failureSummary
+         * @param {string} failureSummary - axe-core's failure summary text
+         * @returns {Object} - Pattern info with colors, ratio, required ratio
+         */
+        extractContrastPattern(failureSummary) {
+            if (!failureSummary) {
+                return null;
+            }
+
+            const pattern = {
+                foreground: 'unknown',
+                background: 'unknown',
+                ratio: 0,
+                required: 4.5,
+                fontSize: 'unknown',
+                fontWeight: 'normal'
+            };
+
+            // Extract foreground color
+            const fgMatch = failureSummary.match(/foreground color:\s*(#[a-f0-9]{6})/i);
+            if (fgMatch) {
+                pattern.foreground = fgMatch[1].toLowerCase();
+            }
+
+            // Extract background color
+            const bgMatch = failureSummary.match(/background color:\s*(#[a-f0-9]{6})/i);
+            if (bgMatch) {
+                pattern.background = bgMatch[1].toLowerCase();
+            }
+
+            // Extract contrast ratio
+            const ratioMatch = failureSummary.match(/contrast of\s*([0-9.]+)/i);
+            if (ratioMatch) {
+                pattern.ratio = parseFloat(ratioMatch[1]);
+            }
+
+            // Extract required ratio
+            const requiredMatch = failureSummary.match(/Expected contrast ratio of\s*([0-9.]+):1/i);
+            if (requiredMatch) {
+                pattern.required = parseFloat(requiredMatch[1]);
+            }
+
+            // Extract font size
+            const fontSizeMatch = failureSummary.match(/font size:\s*([0-9.]+)pt\s*\(([0-9]+)px\)/i);
+            if (fontSizeMatch) {
+                pattern.fontSize = fontSizeMatch[2] + 'px';
+            }
+
+            // Extract font weight
+            const fontWeightMatch = failureSummary.match(/font weight:\s*(\w+)/i);
+            if (fontWeightMatch) {
+                pattern.fontWeight = fontWeightMatch[1].toLowerCase();
+            }
+
+            return pattern;
+        }
+
+        /**
+         * Generate a pattern key for contrast grouping
+         * @param {Object} pattern - Pattern info from extractContrastPattern
+         * @returns {string} - Pattern key like '#ffffff-#8c75b5'
+         */
+        getContrastPatternKey(pattern) {
+            if (!pattern) {
+                return 'unknown';
+            }
+            return `${pattern.foreground}-${pattern.background}`;
+        }
+
+        /**
+         * Check if a CSS selector is from the WordPress admin bar
+         * @param {string} selector - The CSS selector to check
+         * @returns {boolean} - True if this is an admin bar element
+         */
+        isAdminBarSelector(selector) {
+            if (!selector) {
+                return false;
+            }
+
+            const adminBarPatterns = [
+                '#wpadminbar',
+                '#wp-admin-bar',
+                '#adminbar',
+                '.ab-item',
+                '.ab-top-menu',
+                '.ab-sub-wrapper',
+                '.ab-empty-item',
+                'wp-admin-bar-',      // matches #wp-admin-bar-* IDs
+                'adminbar-',          // matches #adminbar-* IDs
+                '.admin-bar'
+            ];
+
+            const lowerSelector = selector.toLowerCase();
+            return adminBarPatterns.some(pattern => lowerSelector.includes(pattern.toLowerCase()));
+        }
+
+        /**
          * Scan multiple pages sequentially
          * @param {Array<Object>} pages - Array of {url, title} objects
          * @param {function} progressCallback - Progress callback(current, total, pageTitle, status)
+         * @param {boolean} applyFixes - Whether to apply auto-fixes (default: true)
          * @returns {Promise<Object>} - Combined results
          */
-        async scanMultiplePages(pages, progressCallback = null) {
+        async scanMultiplePages(pages, progressCallback = null, applyFixes = true) {
             const results = {
                 pages: [],
                 totalViolations: 0,
                 totalIncomplete: 0,
                 violationsByType: {},
+                contrastPatterns: {},  // Group contrast issues by color pattern
                 startTime: Date.now(),
-                endTime: null
+                endTime: null,
+                applyFixes: applyFixes  // Track which mode this scan used
             };
 
             for (let i = 0; i < pages.length; i++) {
@@ -293,7 +400,7 @@
                     if (progressCallback) {
                         progressCallback(i + 1, pages.length, page.title || page.url, status);
                     }
-                });
+                }, applyFixes);
 
                 pageResult.title = page.title || 'Unknown';
                 results.pages.push(pageResult);
@@ -309,6 +416,9 @@
                         // For 'region' rule, count once per page (not per element)
                         // This rule fires for every element outside a landmark which is too noisy
                         const isPerPageRule = (id === 'region');
+
+                        // Check if this is a contrast violation for special grouping
+                        const isContrastViolation = (id === 'color-contrast' || id === 'color-contrast-enhanced');
 
                         if (!results.violationsByType[id]) {
                             results.violationsByType[id] = {
@@ -355,6 +465,48 @@
                                 }
                             });
                         }
+
+                        // NEW: For contrast violations, group by color pattern
+                        if (isContrastViolation) {
+                            violation.nodes.forEach(node => {
+                                // Skip admin bar elements - they're only visible to logged-in admins
+                                const targetSelector = Array.isArray(node.target) ? node.target.join(' > ') : (node.target || '');
+                                if (this.isAdminBarSelector(targetSelector)) {
+                                    return; // Skip this node
+                                }
+
+                                const patternInfo = this.extractContrastPattern(node.failureSummary);
+                                const patternKey = this.getContrastPatternKey(patternInfo);
+
+                                if (!results.contrastPatterns[patternKey]) {
+                                    results.contrastPatterns[patternKey] = {
+                                        key: patternKey,
+                                        foreground: patternInfo ? patternInfo.foreground : 'unknown',
+                                        background: patternInfo ? patternInfo.background : 'unknown',
+                                        ratio: patternInfo ? patternInfo.ratio : 0,
+                                        required: patternInfo ? patternInfo.required : 4.5,
+                                        count: 0,
+                                        pagesAffected: [],
+                                        sampleSelectors: [],
+                                        impact: violation.impact
+                                    };
+                                }
+
+                                results.contrastPatterns[patternKey].count++;
+
+                                // Track pages affected by this pattern
+                                if (!results.contrastPatterns[patternKey].pagesAffected.includes(page.title || page.url)) {
+                                    results.contrastPatterns[patternKey].pagesAffected.push(page.title || page.url);
+                                }
+
+                                // Store sample selectors (up to 5)
+                                if (targetSelector &&
+                                    results.contrastPatterns[patternKey].sampleSelectors.length < 5 &&
+                                    !results.contrastPatterns[patternKey].sampleSelectors.includes(targetSelector)) {
+                                    results.contrastPatterns[patternKey].sampleSelectors.push(targetSelector);
+                                }
+                            });
+                        }
                     });
                 }
 
@@ -371,8 +523,111 @@
         }
 
         /**
+         * Run a full comparison scan - baseline (without fixes) then with fixes
+         * This provides an accurate before/after comparison using axe-core for both
+         * @param {Array<Object>} pages - Array of {url, title} objects
+         * @param {function} progressCallback - Progress callback(phase, current, total, pageTitle, status)
+         * @returns {Promise<Object>} - Comparison results with baseline and withFixes
+         */
+        async runFullComparisonScan(pages, progressCallback = null) {
+            const comparisonResults = {
+                baseline: null,
+                withFixes: null,
+                improvement: null,
+                startTime: Date.now(),
+                endTime: null
+            };
+
+            // Phase 1: Scan WITHOUT fixes (baseline)
+            if (progressCallback) {
+                progressCallback(1, 0, pages.length, '', 'Starting baseline scan (without fixes)...');
+            }
+
+            comparisonResults.baseline = await this.scanMultiplePages(
+                pages,
+                (current, total, pageTitle, status) => {
+                    if (progressCallback) {
+                        progressCallback(1, current, total, pageTitle, status);
+                    }
+                },
+                false  // applyFixes = false
+            );
+
+            // Phase 2: Scan WITH fixes
+            if (progressCallback) {
+                progressCallback(2, 0, pages.length, '', 'Starting scan with fixes applied...');
+            }
+
+            comparisonResults.withFixes = await this.scanMultiplePages(
+                pages,
+                (current, total, pageTitle, status) => {
+                    if (progressCallback) {
+                        progressCallback(2, current, total, pageTitle, status);
+                    }
+                },
+                true  // applyFixes = true
+            );
+
+            // Calculate improvement metrics
+            comparisonResults.improvement = this.calculateImprovement(
+                comparisonResults.baseline,
+                comparisonResults.withFixes
+            );
+
+            comparisonResults.endTime = Date.now();
+            comparisonResults.duration = comparisonResults.endTime - comparisonResults.startTime;
+
+            return comparisonResults;
+        }
+
+        /**
+         * Calculate improvement metrics between baseline and fixed scans
+         * @param {Object} baseline - Results from baseline scan (without fixes)
+         * @param {Object} withFixes - Results from scan with fixes applied
+         * @returns {Object} - Improvement metrics
+         */
+        calculateImprovement(baseline, withFixes) {
+            const baselineScore = this.calculateScore(baseline);
+            const fixedScore = this.calculateScore(withFixes);
+
+            const baselineIssues = baseline.totalViolations;
+            const fixedIssues = withFixes.totalViolations;
+            const issuesFixed = Math.max(0, baselineIssues - fixedIssues);
+
+            // Calculate which issue types were fixed
+            const fixedByType = {};
+            Object.keys(baseline.violationsByType).forEach(id => {
+                const baselineCount = baseline.violationsByType[id]?.count || 0;
+                const fixedCount = withFixes.violationsByType[id]?.count || 0;
+                const fixed = Math.max(0, baselineCount - fixedCount);
+
+                if (fixed > 0) {
+                    fixedByType[id] = {
+                        description: baseline.violationsByType[id].help,
+                        baselineCount: baselineCount,
+                        remainingCount: fixedCount,
+                        fixed: fixed
+                    };
+                }
+            });
+
+            return {
+                baselineScore: baselineScore,
+                fixedScore: fixedScore,
+                scoreDiff: fixedScore - baselineScore,
+                baselineIssues: baselineIssues,
+                fixedIssues: fixedIssues,
+                issuesFixed: issuesFixed,
+                fixedByType: fixedByType,
+                percentImprovement: baselineIssues > 0
+                    ? Math.round((issuesFixed / baselineIssues) * 100)
+                    : 0
+            };
+        }
+
+        /**
          * Calculate accessibility score from axe-core results
-         * Score is normalized per page to handle real-world issue counts
+         * Uses asymptotic formula for meaningful scores across full range
          * @param {Object} results - Results from scanMultiplePages
          * @returns {number} - Score from 0-100
          */
@@ -397,8 +652,17 @@
             const pagesCount = Math.max(1, results.pages ? results.pages.length : 1);
             const avgWeight = totalWeight / pagesCount;
 
-            // Score is 100 minus penalties per page, minimum 0
-            return Math.max(0, Math.round(100 - avgWeight));
+            // Asymptotic formula: score = 100 / (1 + avgWeight / scaleFactor)
+            // This provides a gentler curve that never quite reaches 0:
+            // - avgWeight = 0: 100%
+            // - avgWeight = 50: 67%
+            // - avgWeight = 100: 50%
+            // - avgWeight = 200: 33%
+            // - avgWeight = 500: 17%
+            const scaleFactor = 100;
+            const score = 100 / (1 + avgWeight / scaleFactor);
+
+            return Math.round(score);
         }
 
         /**
@@ -539,12 +803,15 @@
                     fixed: [],
                     remaining: [],
                     unfixable: []
-                }
+                },
+                // NEW: Include contrast patterns for pattern-based scoring and display
+                contrast_patterns: results.contrastPatterns || {}
             };
 
             // Convert each violation type
             Object.values(results.violationsByType).forEach(violation => {
                 const issueType = this.mapAxeIdToIssueType(violation.id);
+                const isContrastViolation = (violation.id === 'color-contrast' || violation.id === 'color-contrast-enhanced');
 
                 // Map axe impact to our severity
                 const severityMap = {
@@ -580,6 +847,12 @@
                         html_snippet: node.html || '',
                         failure_summary: node.failureSummary || ''
                     };
+
+                    // NEW: For contrast issues, add the pattern key for grouping
+                    if (isContrastViolation && node.failureSummary) {
+                        const patternInfo = this.extractContrastPattern(node.failureSummary);
+                        issue.pattern_key = this.getContrastPatternKey(patternInfo);
+                    }
 
                     converted.issues.push(issue);
 
