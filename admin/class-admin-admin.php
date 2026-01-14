@@ -303,11 +303,7 @@ class Admin {
                     <img src="<?php echo esc_url(RAYWP_ACCESSIBILITY_PLUGIN_URL); ?>assets/images/Ray-Logo.webp" alt="Ray" class="raywp-logo" />
                 </div>
             </div>
-            
-            <div class="raywp-page-title">
-                <h1><?php echo esc_html(get_admin_page_title()); ?> <span class="version">v<?php echo esc_html(RAYWP_ACCESSIBILITY_VERSION); ?></span></h1>
-            </div>
-            
+
             <div class="raywp-dashboard">
                 <div class="raywp-dashboard-top">
                     <div class="raywp-dashboard-left">
