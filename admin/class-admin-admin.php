@@ -286,8 +286,11 @@ class Admin {
         
         $aria_rules_count = count($aria_manager->get_aria_rules());
         $last_scan_date = $reports ? $reports->get_last_scan_date() : null;
-        $compliance_assessment = $reports ? $reports->calculate_compliance_assessment() : null;
-        
+
+        // Get the new comparison scan data (accurate axe-core results)
+        $comparison_scan = get_option('raywp_accessibility_comparison_scan', []);
+        $has_comparison_scan = !empty($comparison_scan) && isset($comparison_scan['with_fixes']);
+
         // Check if fixes are enabled
         $current_settings = get_option('raywp_accessibility_settings', []);
         $fixes_enabled = !empty($current_settings['fix_forms']) || 
@@ -310,74 +313,43 @@ class Admin {
                     <div class="raywp-dashboard-left">
                         <div class="raywp-dashboard-widgets">
                             <div class="raywp-widget">
-                                <h2><?php esc_html_e('Quick Stats', 'raywp-accessibility'); ?></h2>
+                                <h2><?php esc_html_e('Status & Info', 'raywp-accessibility'); ?></h2>
                                 <ul>
-                                    <li><?php 
-                                    /* translators: %d: Number of active ARIA rules */
-                                    echo esc_html(sprintf(__('Active ARIA Rules: %d', 'raywp-accessibility'), intval($aria_rules_count))); 
-                                    ?></li>
-                                    <li><?php 
-                                    if ($last_scan_date) {
-                                        /* translators: %s: Date and time of last scan */
-                                        echo esc_html(sprintf(__('Last Scan: %s', 'raywp-accessibility'), 
-                                               esc_html(wp_date(get_option('date_format') . ' ' . get_option('time_format'), 
-                                                       strtotime($last_scan_date)))));
-                                    } else {
-                                        esc_html_e('Last Scan: Never', 'raywp-accessibility');
-                                    }
-                                    ?></li>
-                                    <li><?php 
-                                    if ($compliance_assessment !== null) {
-                                        // Check if any fixes are enabled
-                                        $current_settings = get_option('raywp_accessibility_settings', []);
-                                        $has_fixes_enabled = !empty($current_settings['fix_forms']) || 
-                                                           !empty($current_settings['add_main_landmark']) || 
-                                                           !empty($current_settings['fix_heading_hierarchy']) ||
-                                                           !empty($current_settings['fix_empty_alt']) ||
-                                                           !empty($current_settings['fix_lang_attr']) ||
-                                                           !empty($current_settings['fix_form_labels']) ||
-                                                           !empty($current_settings['add_skip_links']) ||
-                                                           !empty($current_settings['fix_aria_controls']) ||
-                                                           !empty($current_settings['enhance_focus']) ||
-                                                           !empty($current_settings['fix_contrast']) ||
-                                                           !empty($current_settings['enhance_color_contrast']) ||
-                                                           !empty($current_settings['fix_placeholder_contrast']) ||
-                                                           !empty($current_settings['fix_video_accessibility']) ||
-                                                           !empty($current_settings['fix_keyboard_accessibility']) ||
-                                                           !empty($current_settings['fix_duplicate_ids']) ||
-                                                           !empty($current_settings['fix_page_language']);
-                                        
-                                        echo '<strong>Accessibility Status:</strong> ';
-                                        
-                                        // Show the appropriate score
-                                        if ($has_fixes_enabled && isset($compliance_assessment['fixed_score'])) {
-                                            $score = $compliance_assessment['fixed_score'];
+                                    <li>
+                                        <strong><?php esc_html_e('Accessibility Score:', 'raywp-accessibility'); ?></strong>
+                                        <?php if ($has_comparison_scan): ?>
+                                            <?php
+                                            $score = intval($comparison_scan['with_fixes']['score'] ?? 0);
                                             $score_color = $score >= 90 ? '#28a745' : ($score >= 70 ? '#ffc107' : '#dc3545');
-                                            echo '<span style="color: ' . esc_attr($score_color) . '">' . esc_html($score) . '% (With Fixes)</span>';
+                                            ?>
+                                            <span style="color: <?php echo esc_attr($score_color); ?>; font-weight: bold;"><?php echo esc_html($score); ?>%</span>
+                                        <?php else: ?>
+                                            <a href="<?php echo esc_url(admin_url('admin.php?page=raywp-accessibility-reports')); ?>"><?php esc_html_e('Run a scan', 'raywp-accessibility'); ?></a>
+                                        <?php endif; ?>
+                                    </li>
+                                    <li>
+                                        <strong><?php esc_html_e('Last Scan:', 'raywp-accessibility'); ?></strong>
+                                        <?php
+                                        if ($has_comparison_scan && !empty($comparison_scan['timestamp'])) {
+                                            echo esc_html(wp_date(get_option('date_format') . ' ' . get_option('time_format'), strtotime($comparison_scan['timestamp'])));
+                                        } elseif ($last_scan_date) {
+                                            echo esc_html(wp_date(get_option('date_format') . ' ' . get_option('time_format'), strtotime($last_scan_date)));
                                         } else {
-                                            $score = isset($compliance_assessment['original_score']) ? $compliance_assessment['original_score'] : 0;
-                                            $score_color = $score >= 90 ? '#28a745' : ($score >= 70 ? '#ffc107' : '#dc3545');
-                                            echo '<span style="color: ' . esc_attr($score_color) . '">' . esc_html($score) . '%</span>';
+                                            esc_html_e('Never', 'raywp-accessibility');
                                         }
-                                        
-                                        // Show status message
-                                        $status = isset($compliance_assessment['status']) ? $compliance_assessment['status'] : 'Unknown';
-                                        echo '<br><small>' . esc_html($status) . '</small>';
-                                        
-                                        if (isset($compliance_assessment['total_issues']) && $compliance_assessment['total_issues'] > 0) {
-                                            $issues_text = $has_fixes_enabled && isset($compliance_assessment['manual_required']) 
-                                                ? esc_html($compliance_assessment['manual_required']) . ' manual fixes required'
-                                                : esc_html($compliance_assessment['total_issues']) . ' issues found';
-                                            echo '<br><small>' . $issues_text . '</small>';
-                                        }
-                                    } else {
-                                        /* translators: %s: URL to reports page */
-                                        echo wp_kses(sprintf(__('Accessibility Status: <a href="%s">Run a scan first</a>', 'raywp-accessibility'), esc_url(admin_url('admin.php?page=raywp-accessibility-reports'))), array('a' => array('href' => array())));
-                                    }
-                                    ?></li>
+                                        ?>
+                                    </li>
+                                    <li>
+                                        <strong><?php esc_html_e('Active ARIA Rules:', 'raywp-accessibility'); ?></strong>
+                                        <?php echo intval($aria_rules_count); ?>
+                                    </li>
+                                    <li>
+                                        <strong><?php esc_html_e('Plugin Version:', 'raywp-accessibility'); ?></strong>
+                                        <?php echo esc_html(RAYWP_ACCESSIBILITY_VERSION); ?>
+                                    </li>
                                 </ul>
                             </div>
-                            
+
                             <div class="raywp-widget">
                                 <h2><?php esc_html_e('Quick Actions', 'raywp-accessibility'); ?></h2>
                                 <p>
@@ -395,20 +367,6 @@ class Admin {
                                         <?php esc_html_e('View Reports', 'raywp-accessibility'); ?>
                                     </a>
                                 </p>
-                            </div>
-                            
-                            <div class="raywp-widget">
-                                <h2><?php esc_html_e('System Info', 'raywp-accessibility'); ?></h2>
-                                <ul>
-                                    <li><strong><?php esc_html_e('Plugin Version:', 'raywp-accessibility'); ?></strong> <?php echo esc_html(RAYWP_ACCESSIBILITY_VERSION); ?></li>
-                                    <li><strong><?php esc_html_e('Last Updated:', 'raywp-accessibility'); ?></strong> <?php 
-                                        $plugin_file = RAYWP_ACCESSIBILITY_PLUGIN_DIR . 'raywp-accessibility.php';
-                                        $last_modified = filemtime($plugin_file);
-                                        echo esc_html(wp_date('F j, Y', $last_modified)); 
-                                    ?></li>
-                                    <li><strong><?php esc_html_e('Security Fixes:', 'raywp-accessibility'); ?></strong> ✓ Applied</li>
-                                    <li><strong><?php esc_html_e('Performance Monitor:', 'raywp-accessibility'); ?></strong> ✓ Active</li>
-                                </ul>
                             </div>
                         </div>
                     </div>
@@ -492,18 +450,6 @@ class Admin {
                             <h3><?php esc_html_e('Automatic Fixes', 'raywp-accessibility'); ?></h3>
                             <p><?php esc_html_e('Applies fixes directly to the HTML before sending to browsers, ensuring all visitors get an accessible experience automatically.', 'raywp-accessibility'); ?></p>
                         </div>
-                    </div>
-                    
-                    <div class="advantages-section">
-                        <h3><?php esc_html_e('Advantages Over Widget-Based Solutions', 'raywp-accessibility'); ?></h3>
-                        <ul class="advantages-list">
-                            <li><strong><?php esc_html_e('No User Action Required:', 'raywp-accessibility'); ?></strong> <?php esc_html_e('Visitors don\'t need to click any buttons or widgets - accessibility improvements are automatic for everyone.', 'raywp-accessibility'); ?></li>
-                            <li><strong><?php esc_html_e('Better SEO:', 'raywp-accessibility'); ?></strong> <?php esc_html_e('Fixes are applied server-side, making your accessible content visible to search engines.', 'raywp-accessibility'); ?></li>
-                            <li><strong><?php esc_html_e('Faster Performance:', 'raywp-accessibility'); ?></strong> <?php esc_html_e('No additional JavaScript widgets loading on your frontend means faster page loads.', 'raywp-accessibility'); ?></li>
-                            <li><strong><?php esc_html_e('Theme Independent:', 'raywp-accessibility'); ?></strong> <?php esc_html_e('Works with any WordPress theme without requiring integration or modifications.', 'raywp-accessibility'); ?></li>
-                            <li><strong><?php esc_html_e('Professional Compliance:', 'raywp-accessibility'); ?></strong> <?php esc_html_e('Meets enterprise requirements by fixing issues at the source rather than applying band-aids.', 'raywp-accessibility'); ?></li>
-                            <li><strong><?php esc_html_e('Pro Tools for Experts:', 'raywp-accessibility'); ?></strong> <?php esc_html_e('Accessibility professionals can add custom ARIA rules and color contrast overrides using CSS selectors for precise control.', 'raywp-accessibility'); ?></li>
-                        </ul>
                     </div>
                 </div>
                 
@@ -2039,19 +1985,44 @@ class Admin {
                     console.log('%cData Source:', 'font-weight: bold;', <?php echo wp_json_encode($debug_data['source'] ?? 'unknown'); ?>);
                     console.log('%cTimestamp:', 'font-weight: bold;', <?php echo wp_json_encode($debug_data['timestamp'] ?? 'N/A'); ?>);
                     <?php if ($has_comparison_scan): ?>
-                    console.log('%c📊 Baseline (without fixes):', 'color: #dc3545; font-weight: bold;', {
-                        score: <?php echo intval($debug_data['baseline']['score']); ?>,
-                        total_issues: <?php echo intval($debug_data['baseline']['total_issues']); ?>,
-                        pages_scanned: <?php echo intval($debug_data['baseline']['pages_scanned']); ?>,
-                        violations_by_type: <?php echo wp_json_encode($debug_data['baseline']['violations_by_type']); ?>
-                    });
-                    console.log('%c✅ With Fixes:', 'color: #28a745; font-weight: bold;', {
-                        score: <?php echo intval($debug_data['with_fixes']['score']); ?>,
-                        total_issues: <?php echo intval($debug_data['with_fixes']['total_issues']); ?>,
-                        pages_scanned: <?php echo intval($debug_data['with_fixes']['pages_scanned']); ?>,
-                        violations_by_type: <?php echo wp_json_encode($debug_data['with_fixes']['violations_by_type']); ?>
-                    });
-                    console.log('%c📈 Improvement:', 'color: #6366f1; font-weight: bold;', <?php echo wp_json_encode($debug_data['improvement']); ?>);
+
+                    // Baseline summary
+                    console.log('%c📊 BASELINE (without fixes): Score <?php echo intval($debug_data['baseline']['score']); ?>%, <?php echo intval($debug_data['baseline']['total_issues']); ?> issues, <?php echo intval($debug_data['baseline']['pages_scanned']); ?> pages', 'color: #dc3545; font-weight: bold; font-size: 12px;');
+                    <?php
+                    $baseline_violations = $debug_data['baseline']['violations_by_type'] ?? [];
+                    if (!empty($baseline_violations)): ?>
+                    console.table(<?php echo wp_json_encode(array_map(function($v) {
+                        return [
+                            'Issue Type' => $v['id'] ?? 'unknown',
+                            'Count' => $v['count'] ?? 0,
+                            'Impact' => $v['impact'] ?? 'unknown',
+                            'Description' => substr($v['description'] ?? '', 0, 60) . (strlen($v['description'] ?? '') > 60 ? '...' : '')
+                        ];
+                    }, $baseline_violations)); ?>);
+                    <?php else: ?>
+                    console.log('  No violations detected in baseline scan');
+                    <?php endif; ?>
+
+                    // With Fixes summary
+                    console.log('%c✅ WITH FIXES: Score <?php echo intval($debug_data['with_fixes']['score']); ?>%, <?php echo intval($debug_data['with_fixes']['total_issues']); ?> issues remaining, <?php echo intval($debug_data['with_fixes']['pages_scanned']); ?> pages', 'color: #28a745; font-weight: bold; font-size: 12px;');
+                    <?php
+                    $fixed_violations = $debug_data['with_fixes']['violations_by_type'] ?? [];
+                    if (!empty($fixed_violations)): ?>
+                    console.table(<?php echo wp_json_encode(array_map(function($v) {
+                        return [
+                            'Issue Type' => $v['id'] ?? 'unknown',
+                            'Count' => $v['count'] ?? 0,
+                            'Impact' => $v['impact'] ?? 'unknown',
+                            'Description' => substr($v['description'] ?? '', 0, 60) . (strlen($v['description'] ?? '') > 60 ? '...' : '')
+                        ];
+                    }, $fixed_violations)); ?>);
+                    <?php else: ?>
+                    console.log('  ✓ No violations remaining after fixes!');
+                    <?php endif; ?>
+
+                    // Improvement summary
+                    console.log('%c📈 IMPROVEMENT: +<?php echo intval($debug_data['improvement']['score_improvement'] ?? 0); ?>% score, <?php echo intval($debug_data['improvement']['issues_fixed'] ?? 0); ?> issues fixed', 'color: #6366f1; font-weight: bold; font-size: 12px;');
+
                     <?php else: ?>
                     console.log('%c📋 Legacy Scan Data:', 'color: #ffc107; font-weight: bold;', {
                         detected: <?php echo intval($debug_data['detected_count'] ?? 0); ?>,
