@@ -3,6 +3,10 @@
  */
 
 /* Dashboard Header */
+.raywp-admin-header {
+    padding-bottom: 20px;
+}
+
 .raywp-dashboard-header {
     display: flex;
     align-items: center;
